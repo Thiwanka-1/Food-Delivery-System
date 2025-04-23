@@ -25,9 +25,7 @@ router.patch("/:id/availability", verifyToken, toggleAvailability);
 // Public routes
 router.get("/getall", getAllRestaurants);
 router.get("/getid/:id", getRestaurantById);
-
 // New: mark an order ready
 router.patch("/orders/:orderId/ready",verifyToken,markOrderReady);
-
 
 export default router;

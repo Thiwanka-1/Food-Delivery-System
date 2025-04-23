@@ -381,7 +381,6 @@ export const assignDriverToOrder = async (req, res) => {
   }
 };
 
-
 export const updateDriverAvailability = async (req, res) => {
   try {
     const { availability } = req.body;
@@ -497,7 +496,7 @@ export const confirmDelivery = async (req, res) => {
       headers: { Cookie: `access_token=${token}` }
     };
 
-    // 2) Update the order status to "delivered" in Order Service
+    // 2) Update order status to "delivered" in Order Service
     const { data: updatedOrder } = await axios.patch(
       `http://localhost:3002/api/orders/${orderId}/status`,
       { status: "delivered" },
@@ -523,33 +522,44 @@ export const confirmDelivery = async (req, res) => {
 
     const notifyUrl = process.env.NOTIFICATION_SERVICE_URL;
 
-    // 5) Fetch Customer & Driver details
-    const [custRes, drvRes] = await Promise.all([
-      axios.get(`http://localhost:3000/api/user/${updatedOrder.userId}`, authConfig),
-      driverId
-        ? axios.get(`http://localhost:3000/api/user/${driverId}`, authConfig)
-        : Promise.resolve({ data: {} })
-    ]);
-    const customer   = custRes.data;
-    const driverUser = drvRes.data;
+    // 5) Fetch Customer details
+    const { data: customer } = await axios.get(
+      `http://localhost:3000/api/user/${updatedOrder.userId}`,
+      authConfig
+    );
+    // 6) Fetch Driver’s User record correctly
+    let driverUser = null;
+    if (driverId) {
+      // 6a) Get Driver document
+      const { data: driverDoc } = await axios.get(
+        `http://localhost:3003/api/drivers/get/${driverId}`,
+        authConfig
+      );
+      // 6b) Then get the corresponding User
+      const { data: du } = await axios.get(
+        `http://localhost:3000/api/user/${driverDoc.userId}`,
+        authConfig
+      );
+      driverUser = du;
+    }
 
-    // 6) Prepare notifications
+    // 7) Prepare notification messages
     const custSubject = `Order ${orderId} Delivered`;
     const custText    = `Your order ${orderId} has been delivered. Enjoy your meal!`;
 
     const drvSubject  = `Order ${orderId} Delivery Confirmed`;
     const drvText     = `You have successfully delivered order ${orderId}. Thank you!`;
 
-    // 7) Notify Customer
+    // 8) Notify Customer
     await Promise.all([
       // Email
       axios.post(
         `${notifyUrl}/email`,
         {
-          to: customer.email,
+          to:      customer.email,
           subject: custSubject,
-          text: custText,
-          type: "order_delivered",
+          text:    custText,
+          type:    "order_delivered",
           payload: { orderId }
         },
         authConfig
@@ -559,9 +569,9 @@ export const confirmDelivery = async (req, res) => {
         ? axios.post(
             `${notifyUrl}/sms`,
             {
-              to: customer.phoneNumber,
+              to:      customer.phoneNumber,
               message: custText,
-              type: "order_delivered",
+              type:    "order_delivered",
               payload: { orderId }
             },
             authConfig
@@ -569,27 +579,29 @@ export const confirmDelivery = async (req, res) => {
         : Promise.resolve()
     ]);
 
-    // 8) Notify Driver (if driver exists)
-    if (driverUser.email) {
+    // 9) Notify Driver (if exists)
+    if (driverUser) {
       await Promise.all([
+        // Email
         axios.post(
           `${notifyUrl}/email`,
           {
-            to: driverUser.email,
+            to:      driverUser.email,
             subject: drvSubject,
-            text: drvText,
-            type: "order_delivered",
+            text:    drvText,
+            type:    "order_delivered",
             payload: { orderId }
           },
           authConfig
         ),
+        // SMS if available
         driverUser.phoneNumber
           ? axios.post(
               `${notifyUrl}/sms`,
               {
-                to: driverUser.phoneNumber,
+                to:      driverUser.phoneNumber,
                 message: drvText,
-                type: "order_delivered",
+                type:    "order_delivered",
                 payload: { orderId }
               },
               authConfig
@@ -600,7 +612,10 @@ export const confirmDelivery = async (req, res) => {
 
     // ── Done ────────────────────────────────────────────────────────────────
 
-    return res.json({ message: "Delivery confirmed and notifications sent", order: updatedOrder });
+    return res.json({
+      message: "Delivery confirmed and notifications sent",
+      order: updatedOrder
+    });
   } catch (error) {
     console.error("Error in confirmDelivery:", error);
     return res.status(500).json({ message: error.message });

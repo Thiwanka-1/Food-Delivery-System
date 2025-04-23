@@ -3,6 +3,8 @@ import Restaurant from "../models/restaurant.model.js";
 import axios from "axios";
 import dotenv from "dotenv";
 dotenv.config();
+import { errorHandler } from "../utils/error.js";
+
 // Create a new restaurant
 export const createRestaurant = async (req, res) => {
   try {
@@ -103,7 +105,6 @@ export const decideOrder = async (req, res) => {
         Cookie: `access_token=${req.cookies.access_token}`
       }
     };
-
     // Update the order status in the Order Service.
     const orderUpdateResponse = await axios.patch(
       `http://localhost:3002/api/orders/${orderId}/status`,
@@ -128,44 +129,63 @@ export const markOrderReady = async (req, res, next) => {
   const { orderId } = req.params;
 
   // 1) Authenticate
-  const token = req.cookies.access_token;
+  const token =
+    req.cookies?.access_token ||
+    (req.headers.authorization?.startsWith("Bearer ")
+      ? req.headers.authorization.split(" ")[1]
+      : null);
   if (!token) return next(errorHandler(401, "You are not authenticated!"));
-  const config = { headers: { Cookie: `access_token=${token}` } };
+  const config = { 
+    headers: { Cookie: `access_token=${token}` }
+  };
 
   try {
-    // 2) Update order status to "ready"
-    const orderUpdate = await axios.patch(
+    // 2) Patch order to "ready"
+    const { data: updatedOrder } = await axios.patch(
       `http://localhost:3002/api/orders/${orderId}/status`,
       { status: "ready" },
       config
     );
-    const updatedOrder = orderUpdate.data;
 
-    // 3) Fetch updated order details to get userId & driverId
+    // 3) **FIXED**: fetch full order using the existing /get/:id route
     const { data: fullOrder } = await axios.get(
       `http://localhost:3002/api/orders/get/${orderId}`,
       config
     );
     const { userId: custId, driverId, restaurantId } = fullOrder;
 
-    // 4) Fetch restaurant info (for name/address in messages)
+    // 4) Fetch restaurant details
     const { data: restaurant } = await axios.get(
       `http://localhost:3001/api/restaurants/getid/${restaurantId}`,
       config
     );
 
-    // 5) Fetch customer & driver user records
-    const [custRes, driverRes] = await Promise.all([
-      axios.get(`http://localhost:3000/api/user/${custId}`, config),
-      axios.get(`http://localhost:3000/api/user/${driverId}`, config)
-    ]);
-    const customer   = custRes.data;
-    const driverUser = driverRes.data;
+    // 5) Fetch customer
+    const { data: customer } = await axios.get(
+      `http://localhost:3000/api/user/${custId}`,
+      config
+    );
 
-    // 6) Notify via Email+SMS
+    // 6) Fetch driver only if assigned
+    let driverUser = null;
+if (driverId) {
+  // 6a) Get the Driver doc from your Delivery Service
+  const { data: driverDoc } = await axios.get(
+    `http://localhost:3003/api/drivers/get/${driverId}`,
+    config
+  );
+  // 6b) Now fetch the actual User record
+  const { data: du } = await axios.get(
+    `http://localhost:3000/api/user/${driverDoc.userId}`,
+    config
+  );
+  driverUser = du;
+}
+
+    // 7) Dispatch email+SMS via Notification Service
     const notifyUrl = process.env.NOTIFICATION_SERVICE_URL;
 
-    // 6a) Customer notification
+    // 7a) Customer
     const custMsg = `Your order ${orderId} is now ready at ${restaurant.name}.`;
     await Promise.all([
       axios.post(
@@ -175,45 +195,56 @@ export const markOrderReady = async (req, res, next) => {
           subject: `Order ${orderId} Ready for Pickup`,
           text: custMsg,
           type: "order_ready",
-          payload: { orderId }
+          payload: { orderId },
         },
         config
       ),
       customer.phoneNumber
         ? axios.post(
             `${notifyUrl}/sms`,
-            { to: customer.phoneNumber, message: custMsg, type: "order_ready", payload: { orderId } },
+            {
+              to: customer.phoneNumber,
+              message: custMsg,
+              type: "order_ready",
+              payload: { orderId },
+            },
             config
           )
-        : Promise.resolve()
+        : Promise.resolve(),
     ]);
 
-    // 6b) Driver notification
-    const drvMsg = `Order ${orderId} is ready at ${restaurant.name}. Please pick up.`;
-    await Promise.all([
-      axios.post(
-        `${notifyUrl}/email`,
-        {
-          to: driverUser.email,
-          subject: `Pickup Ready: Order ${orderId}`,
-          text: drvMsg,
-          type: "order_ready",
-          payload: { orderId }
-        },
-        config
-      ),
-      driverUser.phoneNumber
-        ? axios.post(
-            `${notifyUrl}/sms`,
-            { to: driverUser.phoneNumber, message: drvMsg, type: "order_ready", payload: { orderId } },
-            config
-          )
-        : Promise.resolve()
-    ]);
+    // 7b) Driver
+    if (driverUser) {
+      const drvMsg = `Order ${orderId} is ready at ${restaurant.name}. Please pick up.`;
+      await Promise.all([
+        axios.post(
+          `${notifyUrl}/email`,
+          {
+            to: driverUser.email,
+            subject: `Pickup Ready: Order ${orderId}`,
+            text: drvMsg,
+            type: "order_ready",
+            payload: { orderId },
+          },
+          config
+        ),
+        driverUser.phoneNumber
+          ? axios.post(
+              `${notifyUrl}/sms`,
+              {
+                to: driverUser.phoneNumber,
+                message: drvMsg,
+                type: "order_ready",
+                payload: { orderId },
+              },
+              config
+            )
+          : Promise.resolve(),
+      ]);
+    }
 
-    // 7) Return the updated order
+    // 8) Return patched order
     res.json(updatedOrder);
-
   } catch (error) {
     console.error("markOrderReady error:", error);
     next(error);
