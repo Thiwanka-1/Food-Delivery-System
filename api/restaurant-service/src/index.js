@@ -26,7 +26,7 @@ mongoose.connect(process.env.MONGO_RES, {
   useUnifiedTopology: true,
 })
 .then(() => {
-  console.log('Connected to MongoDB');
+  console.log('Connected to Restaurant MongoDB');
 })
 .catch((err) => {
   console.error('MongoDB connection error:', err);

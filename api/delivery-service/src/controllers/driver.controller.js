@@ -15,27 +15,75 @@ export const createDriver = async (req, res, next) => {
 };
 
 // Update driver's current location
-export const updateDriverLocation = async (req, res, next) => {
+export const updateDriverLocation = async (req, res) => {
   try {
-    const { latitude, longitude } = req.body;
     const driverId = req.params.id;
-    const updatedDriver = await Driver.findByIdAndUpdate(
-      driverId,
-      { currentLocation: { latitude, longitude } },
-      { new: true }
-    );
-    if (!updatedDriver) {
-      return res.status(404).json({ message: "Driver not found" });
+    const { latitude, longitude } = req.body;
+    if (latitude == null || longitude == null) {
+      return res.status(400).json({ message: "latitude & longitude required" });
     }
-    // Emit a real-time update using Socket.IO
-    // Assuming each driver is tracking a specific order room, or you broadcast globally:
-    req.app.locals.io.emit("driverLocationUpdate", {
-      driverId: updatedDriver._id,
-      currentLocation: updatedDriver.currentLocation,
-    });
-    res.json({ message: "Driver location updated", driver: updatedDriver });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+
+    // 1) Update in DB
+    const driver = await Driver.findById(driverId);
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+    driver.currentLocation = { latitude, longitude };
+    await driver.save();
+
+    // 2) Broadcast via Socket.IO to all clients
+    if (req.app.locals.io) {
+      req.app.locals.io.emit("driverLocationUpdate", {
+        driverId,
+        latitude,
+        longitude
+      });
+    }
+
+    // 3) OPTIONAL: If you’ve stored the active orderId on the Driver doc:
+    if (driver.activeOrderId) {
+      // Fetch that order’s delivery address
+      const { data: order } = await axios.get(
+        `http://localhost:3002/api/orders/get/${driver.activeOrderId}`,
+        { headers: { Cookie: `access_token=${req.cookies.access_token}` } }
+      );
+      const { deliveryAddress } = order;
+      const dist = getDistanceFromLatLonInKm(
+        latitude,
+        longitude,
+        deliveryAddress.latitude,
+        deliveryAddress.longitude
+      );
+      // If within 0.5km and not already alerted:
+      if (dist <= 0.5 && !driver.nearAlertSent) {
+        // Send a “driver is nearby” SMS/email via Notification Service
+        const notifyUrl = process.env.NOTIFICATION_SERVICE_URL;
+        const custId = order.userId;
+        // Fetch customer
+        const { data: customer } = await axios.get(
+          `http://localhost:3000/api/user/${custId}`,
+          { headers: { Cookie: `access_token=${req.cookies.access_token}` } }
+        );
+        const msg = `Your driver is within ${dist.toFixed(2)}km—be ready for delivery!`;
+        await axios.post(
+          `${notifyUrl}/sms`,
+          {
+            to: customer.phoneNumber,
+            message: msg,
+            type: "driver_nearby",
+            payload: { orderId: driver.activeOrderId }
+          },
+          { headers: { Cookie: `access_token=${req.cookies.access_token}` } }
+        );
+        // Mark that you’ve sent this alert
+        driver.nearAlertSent = true;
+        await driver.save();
+      }
+    }
+
+    // 4) Return the updated driver
+    res.json(driver);
+  } catch (err) {
+    console.error("updateDriverLocation error:", err);
+    res.status(500).json({ message: err.message });
   }
 };
 

@@ -6,9 +6,6 @@ import cors from 'cors';
 
 import orderRoutes from "./routes/order.routes.js";
 
-import  "../../restaurant-service/src/models/restaurant.model.js"
-import  "../../restaurant-service/src/models/menuItem.model.js"
-// Load environment variables
 dotenv.config();
 
 
@@ -27,7 +24,7 @@ mongoose.connect(process.env.MONGO_ORD, {
   useUnifiedTopology: true,
 })
 .then(() => {
-  console.log('Connected to MongoDB');
+  console.log('Connected to Order MongoDB');
 })
 .catch((err) => {
   console.error('MongoDB connection error:', err);
@@ -54,7 +51,7 @@ app.use((err, req, res, next) => {
 // Start the server
 const PORT = process.env.PORT || 3002; // Use PORT from .env or default to 3000
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Order Server running on port ${PORT}`);
 });
 
 export default app; // Export the app for testing
