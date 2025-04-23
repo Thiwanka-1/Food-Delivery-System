@@ -1,0 +1,57 @@
+version: '3.8'
+services:
+  auth-service:
+    build: ./api/auth-service
+    container_name: auth-service
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGO_AUTH=mongodb://mongo:27017/auth-db
+      - ADMIN_SIGNUP_SECRET=admin1
+      - JWT_SECRET=gamithu
+    depends_on:
+      - mongo
+
+  restaurant-service:
+    build: ./api/restaurant-service
+    container_name: restaurant-service
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGO_RESTAURANT=mongodb://mongo:27017/restaurant-db
+      - PORT=3001
+    depends_on:
+      - mongo
+
+  order-service:
+    build: ./api/order-service
+    container_name: order-service
+    ports:
+      - "3002:3002"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/order-db
+      - PORT=3002
+    depends_on:
+      - mongo
+
+  delivery-service:
+    build: ./delivery-service
+    container_name: delivery-service
+    ports:
+      - "3003:3003"
+    environment:
+      - MONGO_DELIVERY=mongodb://mongo:27017/delivery-db
+      - PORT=3003
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
