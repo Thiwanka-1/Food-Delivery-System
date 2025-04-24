@@ -1,57 +1,64 @@
-version: '3.8'
+version: "3.8"
 services:
-  auth-service:
+
+  api-gateway:
+    build: ./api/api-gateway
+    ports:
+      - "8080:80"
+    depends_on:
+      - auth
+      - restaurant
+      - order
+      - delivery
+      - payment
+      - notification
+
+  auth:
     build: ./api/auth-service
-    container_name: auth-service
+    env_file: ./api/auth-service/.env
     ports:
       - "3000:3000"
-    environment:
-      - MONGO_AUTH=mongodb://mongo:27017/auth-db
-      - ADMIN_SIGNUP_SECRET=admin1
-      - JWT_SECRET=gamithu
-    depends_on:
-      - mongo
 
-  restaurant-service:
+  restaurant:
     build: ./api/restaurant-service
-    container_name: restaurant-service
+    env_file: ./api/restaurant-service/.env
     ports:
       - "3001:3001"
-    environment:
-      - MONGO_RESTAURANT=mongodb://mongo:27017/restaurant-db
-      - PORT=3001
     depends_on:
-      - mongo
+      - auth
 
-  order-service:
+  order:
     build: ./api/order-service
-    container_name: order-service
+    env_file: ./api/order-service/.env
     ports:
       - "3002:3002"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/order-db
-      - PORT=3002
     depends_on:
-      - mongo
+      - auth
+      - restaurant
 
-  delivery-service:
-    build: ./delivery-service
-    container_name: delivery-service
+  delivery:
+    build: ./api/delivery-service
+    env_file: ./api/delivery-service/.env
     ports:
       - "3003:3003"
-    environment:
-      - MONGO_DELIVERY=mongodb://mongo:27017/delivery-db
-      - PORT=3003
     depends_on:
-      - mongo
+      - auth
+      - order
+      - restaurant
 
-  mongo:
-    image: mongo:6
-    container_name: mongo
+  payment:
+    build: ./api/payment-service
+    env_file: ./api/payment-service/.env
     ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
+      - "3005:3005"
+    depends_on:
+      - auth
+      - order
 
-volumes:
-  mongo-data:
+  notification:
+    build: ./api/notification-service
+    env_file: ./api/notification-service/.env
+    ports:
+      - "3006:3006"
+    depends_on:
+      - auth
