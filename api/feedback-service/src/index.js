@@ -4,8 +4,7 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 
-import userRoutes from './routes/user.route.js';
-import authRoutes from './routes/auth.route.js';
+import FeedbackRoutes from "./routes/feedback.route.js";
 
 // Load environment variables
 dotenv.config();
@@ -21,7 +20,7 @@ app.use(cors()); // Allow all origins (can be configured later)
 
 
 // MongoDB connection using Mongoose directly
-mongoose.connect(process.env.MONGO_AUTH, {
+mongoose.connect(process.env.MONGO_FEEDBACK, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
@@ -34,8 +33,8 @@ mongoose.connect(process.env.MONGO_AUTH, {
 });
 
 // Routes
-app.use("/api/user", userRoutes);   // User management routes
-app.use("/api/auth", authRoutes);   // Authentication routes
+app.use("/api/feedback", FeedbackRoutes);
+
 
 
 
@@ -51,9 +50,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start the server
-const PORT = process.env.PORT || 3000; // Use PORT from .env or default to 3000
-app.listen(PORT, () => {
-  console.log(`Auth Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 3007;
+app.listen(PORT, () => console.log(`Feedback service running on port ${PORT}`));
 
 export default app; // Export the app for testing

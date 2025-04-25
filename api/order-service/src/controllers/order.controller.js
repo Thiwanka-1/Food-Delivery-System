@@ -22,7 +22,7 @@ export const createOrder = async (req, res) => {
     });
     const savedOrder = await newOrder.save();
 
-    // 2) Prepare the cookie-based auth header for internal calls
+    // 2) Extract token for internal calls
     const token = req.cookies.access_token ||
                   (req.headers.authorization?.startsWith("Bearer ")
                      ? req.headers.authorization.split(" ")[1]
@@ -30,34 +30,37 @@ export const createOrder = async (req, res) => {
     if (!token) {
       return res.status(401).json({ message: "You are not authenticated!" });
     }
-    const axiosConfig = {
-      headers: { Cookie: `access_token=${token}` }
-    };
+    const axiosConfig = { headers: { Cookie: `access_token=${token}` } };
 
-    // 3) Get restaurant → ownerId & restaurantPhone
+    // 3) Service base-URLs (from .env or Docker service names)
+    const REST_URL  = process.env.RESTAURANT_SERVICE_URL;
+    const USER_URL  = process.env.USER_SERVICE_URL;
+    const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL;
+
+    // 4) Get restaurant → ownerId & contact
     const { data: restaurant } = await axios.get(
-      `http://localhost:3001/api/restaurants/getid/${restaurantId}`,
+      `${REST_URL}/getid/${restaurantId}`,
       axiosConfig
     );
     const { owner_id: ownerId, contact: restaurantPhone } = restaurant;
 
-    // 4) Fetch owner’s user details
+    // 5) Fetch owner’s details
     const { data: ownerUser } = await axios.get(
-      `http://localhost:3000/api/user/${ownerId}`,
+      `${USER_URL}/${ownerId}`,
       axiosConfig
     );
     const { email: ownerEmail, phoneNumber: ownerPhone } = ownerUser;
 
-    // 5) Fetch customer’s details
+    // 6) Fetch customer’s details
     const { data: customer } = await axios.get(
-      `http://localhost:3000/api/user/${userId}`,
+      `${USER_URL}/${userId}`,
       axiosConfig
     );
     const { email: custEmail, phoneNumber: custPhone } = customer;
 
-    // 6) Notify Restaurant (email + SMS)
+    // 7) Notify Restaurant (email + SMS)
     await axios.post(
-      `${process.env.NOTIFICATION_SERVICE_URL}/email`,
+      `${NOTIF_URL}/email`,
       {
         to:      ownerEmail,
         subject: "New Order Received",
@@ -69,7 +72,7 @@ export const createOrder = async (req, res) => {
     );
     if (ownerPhone) {
       await axios.post(
-        `${process.env.NOTIFICATION_SERVICE_URL}/sms`,
+        `${NOTIF_URL}/sms`,
         {
           to:      ownerPhone,
           message: `New order ${savedOrder._id} received.`,
@@ -80,9 +83,9 @@ export const createOrder = async (req, res) => {
       );
     }
 
-    // 7) Notify Customer (email + SMS)
+    // 8) Notify Customer (email + SMS)
     await axios.post(
-      `${process.env.NOTIFICATION_SERVICE_URL}/email`,
+      `${NOTIF_URL}/email`,
       {
         to:      custEmail,
         subject: "Order Placed Successfully",
@@ -94,7 +97,7 @@ export const createOrder = async (req, res) => {
     );
     if (custPhone) {
       await axios.post(
-        `${process.env.NOTIFICATION_SERVICE_URL}/sms`,
+        `${NOTIF_URL}/sms`,
         {
           to:      custPhone,
           message: `Your order ${savedOrder._id} was placed successfully.`,
@@ -105,7 +108,7 @@ export const createOrder = async (req, res) => {
       );
     }
 
-    // 8) Return the saved order
+    // 9) Return the saved order
     res.status(201).json(savedOrder);
   } catch (error) {
     console.error("createOrder error:", error);
@@ -133,36 +136,35 @@ export const updateOrderStatus = async (req, res) => {
     if (!status) {
       return res.status(400).json({ message: "Status is required" });
     }
+
     const order = await Order.findById(req.params.id);
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
-    
+
     order.status = status;
     if (status === "driver_assigned" && req.body.driverId) {
       order.driverId = req.body.driverId;
     }
     await order.save();
 
-    // When the order is delivered or cancelled, reset driver's availability via Delivery Service API
+    // When delivered or cancelled, reset driver availability
     if ((status === "delivered" || status === "cancelled") && order.driverId) {
+      const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL;
+      const token = req.cookies.access_token;
       await axios.patch(
-        `http://localhost:3003/api/drivers/${order.driverId}/availability`,
+        `${DELIVERY_URL}/${order.driverId}/availability`,
         { availability: "available" },
-        {
-          headers: {
-            Cookie: `access_token=${req.cookies.access_token}`
-          }
-        }
+        { headers: { Cookie: `access_token=${token}` } }
       );
     }
 
     res.json(order);
   } catch (error) {
+    console.error("updateOrderStatus error:", error);
     res.status(500).json({ message: error.message });
   }
 };
-
 
 // Retrieve order details by order ID (for tracking)
 export const getOrderById = async (req, res) => {
@@ -170,26 +172,34 @@ export const getOrderById = async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Fetch restaurant details using the updated URL
-    const restaurantResponse = await axios.get(`http://localhost:3001/api/restaurants/getid/${order.restaurantId}`);
-    const restaurantData = restaurantResponse.data;
+    const REST_URL = process.env.RESTAURANT_SERVICE_URL;
+    const MENU_URL = process.env.MENU_SERVICE_URL;
 
-    // For each order item, fetch the full restaurant menu and filter for the matching menu item
-    const enrichedItems = await Promise.all(order.orderItems.map(async (item) => {
-      const menuResponse = await axios.get(`http://localhost:3001/api/menu/restaurant/${order.restaurantId}`);
-      // Assuming menuResponse.data is an array of menu items
-      const menuItemDetails = menuResponse.data.find(mi => mi._id === item.menuItemId.toString());
-      return { ...item.toObject(), menuItemDetails };
-    }));
+    // Fetch restaurant
+    const { data: restaurant } = await axios.get(
+      `${REST_URL}/getid/${order.restaurantId}`
+    );
 
-    const enrichedOrder = {
+    // Enrich each item
+    const enrichedItems = await Promise.all(
+      order.orderItems.map(async item => {
+        const { data: menu } = await axios.get(
+          `${MENU_URL}/restaurant/${order.restaurantId}`
+        );
+        const menuItemDetails = menu.find(
+          mi => mi._id === item.menuItemId.toString()
+        );
+        return { ...item.toObject(), menuItemDetails };
+      })
+    );
+
+    res.json({
       ...order.toObject(),
-      restaurant: restaurantData,
+      restaurant,
       orderItems: enrichedItems
-    };
-
-    res.json(enrichedOrder);
+    });
   } catch (error) {
+    console.error("getOrderById error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -197,26 +207,38 @@ export const getOrderById = async (req, res) => {
 export const getOrdersByUser = async (req, res) => {
   try {
     const orders = await Order.find({ userId: req.user.id });
+    const REST_URL = process.env.RESTAURANT_SERVICE_URL;
+    const MENU_URL = process.env.MENU_SERVICE_URL;
 
-    // Enrich each order with restaurant and menu item details
-    const enrichedOrders = await Promise.all(orders.map(async (order) => {
-      // Fetch restaurant details
-      const restaurantResponse = await axios.get(`http://localhost:3001/api/restaurants/getid/${order.restaurantId}`);
-      const restaurantData = restaurantResponse.data;
+    const enrichedOrders = await Promise.all(
+      orders.map(async order => {
+        const { data: restaurant } = await axios.get(
+          `${REST_URL}/getid/${order.restaurantId}`
+        );
 
-      // For each order item, fetch the full restaurant menu and filter for the matching menu item details
-      const enrichedItems = await Promise.all(order.orderItems.map(async (item) => {
-        const menuResponse = await axios.get(`http://localhost:3001/api/menu/restaurant/${order.restaurantId}`);
-        // Filter the menu response to get only the menu item that matches the order item's menuItemId
-        const menuItemDetails = menuResponse.data.find(mi => mi._id === item.menuItemId.toString());
-        return { ...item.toObject(), menuItemDetails };
-      }));
+        const enrichedItems = await Promise.all(
+          order.orderItems.map(async item => {
+            const { data: menu } = await axios.get(
+              `${MENU_URL}/restaurant/${order.restaurantId}`
+            );
+            const menuItemDetails = menu.find(
+              mi => mi._id === item.menuItemId.toString()
+            );
+            return { ...item.toObject(), menuItemDetails };
+          })
+        );
 
-      return { ...order.toObject(), restaurant: restaurantData, orderItems: enrichedItems };
-    }));
+        return {
+          ...order.toObject(),
+          restaurant,
+          orderItems: enrichedItems
+        };
+      })
+    );
 
     res.json(enrichedOrders);
   } catch (error) {
+    console.error("getOrdersByUser error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -224,129 +246,69 @@ export const getOrdersByUser = async (req, res) => {
 export const cancelOrder = async (req, res) => {
   try {
     const orderId = req.params.id;
-
-    // 1) Auth token (cookie or Bearer)
     const token =
-      req.cookies?.access_token ||
-      (req.headers.authorization?.startsWith("Bearer ")
-        ? req.headers.authorization.split(" ")[1]
-        : null);
-    if (!token) {
-      return res.status(401).json({ message: "You are not authenticated!" });
-    }
-    const authConfig = {
-      headers: { Authorization: `Bearer ${token}` }
-    };
+      req.cookies.access_token ||
+      (req.headers.authorization?.split(" ")[1] || "");
+    const authConfig = { headers: { Cookie: `access_token=${token}` } };
 
-    // 2) Fetch the order
     const order = await Order.findById(orderId);
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
+    if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // 3) Update status to "cancelled"
     order.status = "cancelled";
     await order.save();
 
-    // 4) If a driver was assigned, reset their availability
+    // Reset driver if assigned
     if (order.driverId) {
+      const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL;
       await axios.patch(
-        `http://localhost:3003/api/drivers/${order.driverId}/availability`,
+        `${DELIVERY_URL}/${order.driverId}/availability`,
         { availability: "available" },
         authConfig
       );
     }
 
-    // ── Notifications ───────────────────────────────────────
+    const REST_URL = process.env.RESTAURANT_SERVICE_URL;
+    const USER_URL = process.env.USER_SERVICE_URL;
+    const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL;
 
-    const notifyUrl = process.env.NOTIFICATION_SERVICE_URL;
-    const { userId, restaurantId } = order;
-
-    // 5) Fetch restaurant owner ID & restaurant name
+    // 1) Get restaurant → owner
     const { data: restaurant } = await axios.get(
-      `http://localhost:3001/api/restaurants/getid/${restaurantId}`,
-      authConfig
+      `${REST_URL}/getid/${order.restaurantId}`
     );
     const ownerId = restaurant.owner_id;
 
-    // 6) Fetch user records for customer & owner
-    const [custRes, ownerRes] = await Promise.all([
-      axios.get(`http://localhost:3000/api/user/${userId}`, authConfig),
-      axios.get(`http://localhost:3000/api/user/${ownerId}`, authConfig),
+    // 2) Get customer & owner user records
+    const [{ data: customer }, { data: ownerUser }] = await Promise.all([
+      axios.get(`${USER_URL}/${order.userId}`, authConfig),
+      axios.get(`${USER_URL}/${ownerId}`, authConfig)
     ]);
-    const customer  = custRes.data;
-    const ownerUser = ownerRes.data;
 
-    // 7) Compose messages
-    const custSubject = `Your Order ${orderId} Was Cancelled`;
-    const custText    = `Your order (${orderId}) has been successfully cancelled.`;
-    const ownerSubject= `Order ${orderId} Cancelled by Customer`;
-    const ownerText   = `Order (${orderId}) has been cancelled by the customer.`;
-
-    // 8) Notify Customer
-    await Promise.all([
-      // Email
-      axios.post(
-        `${notifyUrl}/email`,
-        {
-          to: customer.email,
-          subject: custSubject,
-          text: custText,
-          type: "order_cancelled",
-          payload: { orderId }
-        },
-        authConfig
-      ),
-      // SMS if available
-      customer.phoneNumber
+    // 3) Notify both
+    const notify = (to, verb, type) =>
+      to
         ? axios.post(
-            `${notifyUrl}/sms`,
+            `${NOTIF_URL}/${type}`,
             {
-              to: customer.phoneNumber,
-              message: custText,
-              type: "order_cancelled",
+              to,
+              subject: verb,
+              text: verb,
+              type,
               payload: { orderId }
             },
             authConfig
           )
-        : Promise.resolve()
-    ]);
+        : Promise.resolve();
 
-    // 9) Notify Restaurant Owner
     await Promise.all([
-      axios.post(
-        `${notifyUrl}/email`,
-        {
-          to: ownerUser.email,
-          subject: ownerSubject,
-          text: ownerText,
-          type: "order_cancelled",
-          payload: { orderId }
-        },
-        authConfig
-      ),
-      ownerUser.phoneNumber
-        ? axios.post(
-            `${notifyUrl}/sms`,
-            {
-              to: ownerUser.phoneNumber,
-              message: ownerText,
-              type: "order_cancelled",
-              payload: { orderId }
-            },
-            authConfig
-          )
-        : Promise.resolve()
+      notify(customer.email, `Your Order ${orderId} Was Cancelled`, "email"),
+      notify(customer.phoneNumber, `Your Order ${orderId} Was Cancelled`, "sms"),
+      notify(ownerUser.email, `Order ${orderId} Cancelled by Customer`, "email"),
+      notify(ownerUser.phoneNumber, `Order ${orderId} Cancelled by Customer`, "sms")
     ]);
 
-    // ── End Notifications ────────────────────────────────────
-
-    return res.json({
-      message: "Order cancelled and notifications sent",
-      order
-    });
+    res.json({ message: "Order cancelled and notifications sent", order });
   } catch (error) {
     console.error("cancelOrder error:", error);
-    return res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.message });
   }
 };

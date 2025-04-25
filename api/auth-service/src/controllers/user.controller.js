@@ -20,7 +20,6 @@ export const verifyAdmin = (req, res, next) => {
   });
 };
 // update user
-
 export const updateUser = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
@@ -30,7 +29,6 @@ export const updateUser = async (req, res, next) => {
     if (!req.user || req.user.id.toString() !== req.params.id.toString()) {
       return res.status(403).json({ success: false, message: 'Unauthorized action!' });
     }
-
     if (req.body.password) {
       req.body.password = bcryptjs.hashSync(req.body.password, 10);
     }

@@ -1,10 +1,9 @@
-version: "3.8"
 services:
 
   api-gateway:
     build: ./api/api-gateway
     ports:
-      - "8080:80"
+      - "8081:80"
     depends_on:
       - auth
       - restaurant
@@ -12,6 +11,7 @@ services:
       - delivery
       - payment
       - notification
+      - feedback
 
   auth:
     build: ./api/auth-service
@@ -62,3 +62,12 @@ services:
       - "3006:3006"
     depends_on:
       - auth
+
+  feedback:
+    build: ./api/feedback-service
+    env_file: ./api/feedback-service/.env
+    ports:
+      - "3007:3007"
+    depends_on:
+      - auth
+      - order

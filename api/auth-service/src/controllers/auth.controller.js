@@ -2,12 +2,25 @@ import User from '../models/user.model.js';
 import bcryptjs from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
+import dotenv from "dotenv";
+dotenv.config();
 
 export const signup = async (req, res, next) => {
-  const { username, email, password, role, adminSecret, latitude, longitude, phoneNumber } = req.body;
+  const {
+    username,
+    email,
+    password,
+    role,
+    adminSecret,
+    latitude,
+    longitude,
+    phoneNumber
+  } = req.body;
 
   if (!username || !email || !password) {
-    return res.status(400).json({ message: "username, email and password are required." });
+    return res
+      .status(400)
+      .json({ message: "username, email and password are required." });
   }
 
   try {
@@ -23,13 +36,15 @@ export const signup = async (req, res, next) => {
     const hashedPassword = bcryptjs.hashSync(password, 10);
 
     // 3) Determine role/isAdmin
-    const allowedRoles = ["user","owner","driver"];
+    const allowedRoles = ["user", "owner", "driver"];
     let assignedRole = "user";
     let isAdmin = false;
 
     if (role === "admin") {
       if (adminSecret !== process.env.ADMIN_SIGNUP_SECRET) {
-        return res.status(403).json({ message: "Invalid admin signup secret." });
+        return res
+          .status(403)
+          .json({ message: "Invalid admin signup secret." });
       }
       assignedRole = "admin";
       isAdmin = true;
@@ -46,7 +61,7 @@ export const signup = async (req, res, next) => {
       role: assignedRole,
       phoneNumber: phoneNumber || "",
       location: {
-        latitude:  latitude  != null ? latitude  : 0,
+        latitude: latitude != null ? latitude : 0,
         longitude: longitude != null ? longitude : 0
       }
     });
@@ -57,19 +72,27 @@ export const signup = async (req, res, next) => {
       const driverData = {
         userId: savedUser._id,
         currentLocation: {
-          latitude:  newUser.location.latitude,
+          latitude: newUser.location.latitude,
           longitude: newUser.location.longitude
         },
-        availability: "available",
+        availability: "available"
       };
-      // Make sure Delivery Service is running on port 3003
-      await axios.post(
-        "http://localhost:3003/api/drivers/add",
-        driverData
-      );
+
+      // Use the DELIVERY_SERVICE_URL from .env
+      const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL;
+      if (!DELIVERY_URL) {
+        console.warn("DELIVERY_SERVICE_URL not set—skipping driver creation.");
+      } else {
+        await axios.post(
+          `${DELIVERY_URL}/add`,
+          driverData
+        );
+      }
     }
 
-    res.status(201).json({ message: "User created successfully", userId: savedUser._id });
+    res
+      .status(201)
+      .json({ message: "User created successfully", userId: savedUser._id });
   } catch (error) {
     console.error("Error in signup:", error);
     res.status(500).json({ message: "Server error." });

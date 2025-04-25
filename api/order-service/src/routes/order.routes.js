@@ -11,7 +11,6 @@ router.post("/add", verifyToken, createOrder);
 router.put("/update/:id", verifyToken, updateOrder);
 // Retrieve order details by order ID (for tracking)
 router.get("/get/:id", getOrderById);
-router.get("/:id",    getOrderById);  // optional alias
 
 // Retrieve all orders for the authenticated user
 router.get("/user/:userId", verifyToken, getOrdersByUser);

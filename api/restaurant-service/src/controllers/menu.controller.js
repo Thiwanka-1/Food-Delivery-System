@@ -55,7 +55,7 @@ export const updateMenuItem = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-;
+
 
 // Delete a menu item
 export const deleteMenuItem = async (req, res) => {

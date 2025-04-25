@@ -86,36 +86,43 @@ export const decideOrder = async (req, res) => {
   try {
     const { orderId, decision } = req.body;
     if (!orderId || !decision) {
-      return res.status(400).json({ message: "OrderId and decision are required." });
+      return res
+        .status(400)
+        .json({ message: "OrderId and decision are required." });
     }
 
-    // Determine the new status based on the decision
+    // Determine new status
     let newStatus;
-    if (decision === "accept") {
-      newStatus = "accepted";
-    } else if (decision === "reject") {
-      newStatus = "rejected";
-    } else {
-      return res.status(400).json({ message: "Invalid decision. Use 'accept' or 'reject'." });
-    }
+    if (decision === "accept") newStatus = "accepted";
+    else if (decision === "reject") newStatus = "rejected";
+    else
+      return res
+        .status(400)
+        .json({ message: "Invalid decision. Use 'accept' or 'reject'." });
 
-    // Create a config object with the access token from the incoming cookies
+    // Auth cookie for internal calls
     const config = {
-      headers: {
-        Cookie: `access_token=${req.cookies.access_token}`
-      }
+      headers: { Cookie: `access_token=${req.cookies.access_token}` }
     };
-    // Update the order status in the Order Service.
-    const orderUpdateResponse = await axios.patch(
-      `http://localhost:3002/api/orders/${orderId}/status`,
+
+    // Service URLs
+    const ORDER_URL    = process.env.ORDER_SERVICE_URL;      // http://order:3002/api/orders
+    const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL;   // http://delivery:3003/api/drivers
+
+    // 1) Update order status
+    const { data: updatedOrder } = await axios.patch(
+      `${ORDER_URL}/${orderId}/status`,
       { status: newStatus },
       config
     );
-    const updatedOrder = orderUpdateResponse.data;
 
-    // If the order was accepted, trigger driver assignment.
+    // 2) If accepted, trigger driver assignment
     if (newStatus === "accepted") {
-      await axios.post("http://localhost:3003/api/drivers/assign", { orderId }, config);
+      await axios.post(
+        `${DELIVERY_URL}/assign`,
+        { orderId },
+        config
+      );
     }
 
     res.json({ message: `Order ${decision}ed successfully`, order: updatedOrder });
@@ -135,115 +142,115 @@ export const markOrderReady = async (req, res, next) => {
       ? req.headers.authorization.split(" ")[1]
       : null);
   if (!token) return next(errorHandler(401, "You are not authenticated!"));
-  const config = { 
-    headers: { Cookie: `access_token=${token}` }
-  };
+
+  const config = { headers: { Cookie: `access_token=${token}` } };
 
   try {
-    // 2) Patch order to "ready"
+    // Service URLs
+    const ORDER_URL        = process.env.ORDER_SERVICE_URL;       // http://order:3002/api/orders
+    const REST_URL         = process.env.RESTAURANT_SERVICE_URL;  // http://restaurant:3001/api/restaurants
+    const USER_URL         = process.env.USER_SERVICE_URL;        // http://auth:3000/api/user
+    const DELIVERY_URL     = process.env.DELIVERY_SERVICE_URL;    // http://delivery:3003/api/drivers
+    const NOTIF_URL        = process.env.NOTIFICATION_SERVICE_URL;// http://notification:3006/api/notifications
+
+    // 2) Patch order → "ready"
     const { data: updatedOrder } = await axios.patch(
-      `http://localhost:3002/api/orders/${orderId}/status`,
+      `${ORDER_URL}/${orderId}/status`,
       { status: "ready" },
       config
     );
 
-    // 3) **FIXED**: fetch full order using the existing /get/:id route
+    // 3) Fetch full order for IDs
     const { data: fullOrder } = await axios.get(
-      `http://localhost:3002/api/orders/get/${orderId}`,
+      `${ORDER_URL}/get/${orderId}`,
       config
     );
     const { userId: custId, driverId, restaurantId } = fullOrder;
 
     // 4) Fetch restaurant details
     const { data: restaurant } = await axios.get(
-      `http://localhost:3001/api/restaurants/getid/${restaurantId}`,
+      `${REST_URL}/getid/${restaurantId}`,
       config
     );
 
     // 5) Fetch customer
     const { data: customer } = await axios.get(
-      `http://localhost:3000/api/user/${custId}`,
+      `${USER_URL}/${custId}`,
       config
     );
 
-    // 6) Fetch driver only if assigned
+    // 6) Fetch driver user if assigned
     let driverUser = null;
-if (driverId) {
-  // 6a) Get the Driver doc from your Delivery Service
-  const { data: driverDoc } = await axios.get(
-    `http://localhost:3003/api/drivers/get/${driverId}`,
-    config
-  );
-  // 6b) Now fetch the actual User record
-  const { data: du } = await axios.get(
-    `http://localhost:3000/api/user/${driverDoc.userId}`,
-    config
-  );
-  driverUser = du;
-}
+    if (driverId) {
+      const { data: driverDoc } = await axios.get(
+        `${DELIVERY_URL}/get/${driverId}`,
+        config
+      );
+      const { data: du } = await axios.get(
+        `${USER_URL}/${driverDoc.userId}`,
+        config
+      );
+      driverUser = du;
+    }
 
-    // 7) Dispatch email+SMS via Notification Service
-    const notifyUrl = process.env.NOTIFICATION_SERVICE_URL;
-
-    // 7a) Customer
+    // 7) Notify via Notification Service
     const custMsg = `Your order ${orderId} is now ready at ${restaurant.name}.`;
     await Promise.all([
       axios.post(
-        `${notifyUrl}/email`,
+        `${NOTIF_URL}/email`,
         {
           to: customer.email,
           subject: `Order ${orderId} Ready for Pickup`,
           text: custMsg,
           type: "order_ready",
-          payload: { orderId },
+          payload: { orderId }
         },
         config
       ),
       customer.phoneNumber
         ? axios.post(
-            `${notifyUrl}/sms`,
+            `${NOTIF_URL}/sms`,
             {
               to: customer.phoneNumber,
               message: custMsg,
               type: "order_ready",
-              payload: { orderId },
+              payload: { orderId }
             },
             config
           )
-        : Promise.resolve(),
+        : Promise.resolve()
     ]);
 
-    // 7b) Driver
     if (driverUser) {
       const drvMsg = `Order ${orderId} is ready at ${restaurant.name}. Please pick up.`;
       await Promise.all([
         axios.post(
-          `${notifyUrl}/email`,
+          `${NOTIF_URL}/email`,
           {
             to: driverUser.email,
             subject: `Pickup Ready: Order ${orderId}`,
             text: drvMsg,
             type: "order_ready",
-            payload: { orderId },
+            payload: { orderId }
           },
           config
         ),
         driverUser.phoneNumber
           ? axios.post(
-              `${notifyUrl}/sms`,
+              `${NOTIF_URL}/sms`,
               {
                 to: driverUser.phoneNumber,
                 message: drvMsg,
                 type: "order_ready",
-                payload: { orderId },
+                payload: { orderId }
               },
               config
             )
-          : Promise.resolve(),
+          : Promise.resolve()
       ]);
     }
 
-    // 8) Return patched order
+    // 8) Return the patched order
     res.json(updatedOrder);
   } catch (error) {
     console.error("markOrderReady error:", error);
