@@ -486,6 +486,7 @@ export const assignDriverToOrder = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 export const updateDriverAvailability = async (req, res) => {
   try {
     const { availability } = req.body;

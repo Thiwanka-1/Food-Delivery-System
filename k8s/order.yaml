@@ -1,0 +1,40 @@
+# k8s/order.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: food-delivery
+  labels:
+    app: order-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+      - name: order
+        image: order-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3002
+        envFrom:
+        - secretRef:    { name: order-secrets }
+        - configMapRef: { name: order-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: food-delivery
+spec:
+  selector:
+    app: order-service
+  ports:
+  - port: 3002
+    targetPort: 3002
+  type: ClusterIP

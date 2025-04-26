@@ -1,0 +1,40 @@
+# k8s/feedback.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feedback-service
+  namespace: food-delivery
+  labels:
+    app: feedback-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: feedback-service
+  template:
+    metadata:
+      labels:
+        app: feedback-service
+    spec:
+      containers:
+      - name: feedback
+        image: feedback-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3007
+        envFrom:
+        - secretRef:    { name: feedback-secrets }
+        - configMapRef: { name: feedback-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feedback-service
+  namespace: food-delivery
+spec:
+  selector:
+    app: feedback-service
+  ports:
+  - port: 3007
+    targetPort: 3007
+  type: ClusterIP

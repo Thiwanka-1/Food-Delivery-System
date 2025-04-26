@@ -91,23 +91,22 @@ export const decideOrder = async (req, res) => {
         .json({ message: "OrderId and decision are required." });
     }
 
-    // Determine new status
-    let newStatus;
-    if (decision === "accept") newStatus = "accepted";
-    else if (decision === "reject") newStatus = "rejected";
-    else
+    const newStatus = decision === "accept"
+      ? "accepted"
+      : decision === "reject"
+        ? "rejected"
+        : null;
+    if (!newStatus) {
       return res
         .status(400)
         .json({ message: "Invalid decision. Use 'accept' or 'reject'." });
+    }
 
-    // Auth cookie for internal calls
     const config = {
       headers: { Cookie: `access_token=${req.cookies.access_token}` }
     };
-
-    // Service URLs
-    const ORDER_URL    = process.env.ORDER_SERVICE_URL;      // http://order:3002/api/orders
-    const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL;   // http://delivery:3003/api/drivers
+    const ORDER_URL    = process.env.ORDER_SERVICE_URL;
+    const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL;
 
     // 1) Update order status
     const { data: updatedOrder } = await axios.patch(
@@ -116,18 +115,28 @@ export const decideOrder = async (req, res) => {
       config
     );
 
-    // 2) If accepted, trigger driver assignment
+    // 2) If accepted, trigger driver assignment—but catch its errors
     if (newStatus === "accepted") {
-      await axios.post(
-        `${DELIVERY_URL}/assign`,
-        { orderId },
-        config
-      );
+      try {
+        await axios.post(
+          `${DELIVERY_URL}/assign`,
+          { orderId },
+          config
+        );
+      } catch (assignErr) {
+        console.error("Failed to assign driver:", assignErr.message);
+        // we still want to return success to the restaurant
+      }
     }
 
-    res.json({ message: `Order ${decision}ed successfully`, order: updatedOrder });
+    // 3) Return success
+    res.json({
+      message: `Order ${decision}ed successfully`,
+      order: updatedOrder
+    });
+
   } catch (error) {
-    console.error("Error in decideOrder:", error.message);
+    console.error("Error in decideOrder:", error);
     res.status(500).json({ message: error.message });
   }
 };
