@@ -8,16 +8,28 @@ import { errorHandler } from "../utils/error.js";
 // Create a new restaurant
 export const createRestaurant = async (req, res) => {
   try {
-    // Use the authenticated user's id as owner_id
-    const restaurantData = { ...req.body, owner_id: req.user.id };
+    // Destructure lat/long from body, and everything else into 'rest'
+    const { latitude, longitude, ...rest } = req.body;
+
+    // Build the payload so that lat/long go into the nested 'location' field
+    const restaurantData = {
+      ...rest,
+      owner_id: req.user.id,
+      location: {
+        // ensure they're numbers
+        latitude: latitude != null ? Number(latitude) : undefined,
+        longitude: longitude != null ? Number(longitude) : undefined,
+      },
+    };
+
     const restaurant = new Restaurant(restaurantData);
     await restaurant.save();
     res.status(201).json(restaurant);
   } catch (error) {
+    console.error("createRestaurant error:", error);
     res.status(500).json({ message: error.message });
   }
 };
-
 // Retrieve all restaurants
 export const getAllRestaurants = async (req, res) => {
   try {

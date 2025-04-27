@@ -1,0 +1,43 @@
+import { Routes, Route, Navigate, BrowserRouter } from 'react-router-dom';
+import SignIn from './pages/SignIn';
+import SignUp from './pages/SignUp';
+import Profile from './pages/Profile';
+import AdminProfile from './pages/AdminProfile';
+import Header from './components/Header';
+import DriverProfile from './pages/DriverProfile';
+import OwnerProfile from './pages/OwnerProfile';
+import AddRestaurant from './pages/restaurant/AddRestaurant';
+import MyRestaurants from './pages/restaurant/MyRestaurants';
+import RestaurantDetails from './pages/restaurant/RestaurantDetails';
+import EditRestaurant from './pages/restaurant/EditRestaurant';
+import AddMenuItem from './pages/menu/AddMenuItem';
+import EditMenuItem from './pages/menu/EditMenuItem';
+
+function App() {
+
+  return( <>
+  <Header />
+    <Routes>
+      
+      <Route path="/signin" element={<SignIn />} />
+      <Route path="/signup" element={<SignUp />} />
+      <Route path="/profile" element={<Profile />}/>
+      <Route path="/admin/profile" element={ <AdminProfile />} />
+      <Route path="/driver/profile" element={<DriverProfile />} />
+      <Route path="/owner/profile" element={<OwnerProfile />} />
+
+      <Route path="/restaurants/add" element={<AddRestaurant />} />
+      <Route path="/restaurants/my" element={<MyRestaurants />} />
+      <Route path="/restaurants/:id" element={<RestaurantDetails />} />
+      <Route path="/restaurants/edit/:id" element={<EditRestaurant />} />
+
+      <Route path="/restaurants/:restaurantId/menu/add" element={<AddMenuItem />}/>
+      <Route path="/restaurants/:restaurantId/menu/edit/:menuItemId" element={<EditMenuItem />}/>
+
+    </Routes>
+    </>
+  );
+}
+
+
+export default App

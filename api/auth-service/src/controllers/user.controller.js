@@ -90,7 +90,7 @@ export const deleteUser = async (req, res, next) => {
 export const getUserById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id, 'email phoneNumber username');
+    const user = await User.findById(id).select('-password');
     if (!user) {
       return next(errorHandler(404, 'User not found'));
     }
