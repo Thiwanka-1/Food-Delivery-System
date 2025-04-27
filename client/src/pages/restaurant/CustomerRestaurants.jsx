@@ -20,21 +20,23 @@ function getDistanceKm(lat1, lon1, lat2, lon2) {
   const dLon = toRad(lon2 - lon1);
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default function CustomerRestaurants() {
   const navigate = useNavigate();
 
-  // Picking state
+  // States for picking
   const [markerPos, setMarkerPos] = useState(null);
   const [location, setLocation] = useState(null);
   const [address, setAddress] = useState('');
   const [loadingLoc, setLoadingLoc] = useState(false);
   const [error, setError] = useState('');
 
-  // Restaurants state
+  // Restaurants
   const [nearby, setNearby] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -51,7 +53,7 @@ export default function CustomerRestaurants() {
     setError('');
   };
 
-  // “Use my location”
+  // “Use my current location”
   const handleUseCurrent = () => {
     setLoadingLoc(true);
     navigator.geolocation.getCurrentPosition(
@@ -69,12 +71,28 @@ export default function CustomerRestaurants() {
     );
   };
 
-  // Confirm & fetch restaurants
+  // Confirm location → persist & trigger fetch
   const handleConfirm = () => {
+    if (!markerPos) return;
     setLocation(markerPos);
+    localStorage.setItem(
+      'customerLocation',
+      JSON.stringify({ ...markerPos, address })
+    );
   };
 
-  // Fetch + filter once we have a confirmed location
+  // Load persisted location on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('customerLocation');
+    if (saved) {
+      const { lat, lng, address } = JSON.parse(saved);
+      setMarkerPos({ lat, lng });
+      setAddress(address || '');
+      setLocation({ lat, lng });
+    }
+  }, []);
+
+  // Fetch & filter restaurants whenever `location` changes
   useEffect(() => {
     if (!location) return;
     setLoading(true);
@@ -90,7 +108,12 @@ export default function CustomerRestaurants() {
             const lat = r.location?.latitude;
             const lng = r.location?.longitude;
             if (lat == null || lng == null) return null;
-            const distance = getDistanceKm(location.lat, location.lng, lat, lng);
+            const distance = getDistanceKm(
+              location.lat,
+              location.lng,
+              lat,
+              lng
+            );
             return { ...r, distance };
           })
           .filter(r => r && r.distance <= 10)
@@ -101,25 +124,37 @@ export default function CustomerRestaurants() {
       .finally(() => setLoading(false));
   }, [location]);
 
-  // Load Google Maps
+  // Load Google Maps script
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
     libraries,
   });
-
   if (loadError) return <div>Error loading maps</div>;
   if (!isLoaded) return <div>Loading map…</div>;
+
+  // “Change Location” clears everything
+  const handleChangeLocation = () => {
+    localStorage.removeItem('customerLocation');
+    setLocation(null);
+    setMarkerPos(null);
+    setAddress('');
+    setNearby([]);
+    setError('');
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
       <main className="flex-1 p-8">
-        {/* LOCATION PICKER */}
+        {/* If no confirmed location, show picker */}
         {!location ? (
           <div className="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md flex flex-col md:flex-row gap-6">
-            {/* Map + Search */}
+            {/* Map & search */}
             <div className="relative md:w-2/3 h-64 md:h-96">
-              <Autocomplete onLoad={onLoadAuto} onPlaceChanged={onPlaceChanged}>
+              <Autocomplete
+                onLoad={onLoadAuto}
+                onPlaceChanged={onPlaceChanged}
+              >
                 <input
                   type="text"
                   value={address}
@@ -128,13 +163,17 @@ export default function CustomerRestaurants() {
                   className="absolute top-4 left-4 z-10 w-2/3 p-2 border rounded shadow"
                 />
               </Autocomplete>
-
               <GoogleMap
                 mapContainerStyle={{ width: '100%', height: '100%' }}
-                center={markerPos || { lat: 6.9271, lng: 79.8612 }}
+                center={
+                  markerPos || { lat: 6.9271, lng: 79.8612 }
+                }
                 zoom={markerPos ? 15 : 12}
                 onClick={e =>
-                  setMarkerPos({ lat: e.latLng.lat(), lng: e.latLng.lng() })
+                  setMarkerPos({
+                    lat: e.latLng.lat(),
+                    lng: e.latLng.lng()
+                  })
                 }
               >
                 {markerPos && <Marker position={markerPos} />}
@@ -143,21 +182,29 @@ export default function CustomerRestaurants() {
 
             {/* Controls */}
             <div className="md:w-1/3 flex flex-col justify-center">
-              <h2 className="text-2xl font-bold mb-4">Select Your Location</h2>
+              <h2 className="text-2xl font-bold mb-4">
+                Select Your Location
+              </h2>
               <p className="text-gray-600 mb-4">
-                Search an address above, or click the map to place the pin.
+                Search above or click the map to place the pin.
               </p>
-              {error && <p className="text-red-600 mb-4">{error}</p>}
-
+              {error && (
+                <p className="text-red-600 mb-4">{error}</p>
+              )}
               <button
                 onClick={handleUseCurrent}
                 disabled={loadingLoc}
                 className="mb-3 inline-flex items-center justify-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
               >
-                {loadingLoc && <FaSpinner className="animate-spin" />}
-                <span>{loadingLoc ? 'Locating…' : 'Use My Current Location'}</span>
+                {loadingLoc && (
+                  <FaSpinner className="animate-spin" />
+                )}
+                <span>
+                  {loadingLoc
+                    ? 'Locating…'
+                    : 'Use My Current Location'}
+                </span>
               </button>
-
               <button
                 onClick={handleConfirm}
                 disabled={!markerPos}
@@ -171,19 +218,34 @@ export default function CustomerRestaurants() {
         ) : (
           /* RESTAURANT LIST */
           <>
-            <h1 className="text-3xl font-bold mb-6">Restaurants Nearby</h1>
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="text-3xl font-bold">
+                Restaurants Nearby
+              </h1>
+              <button
+                onClick={handleChangeLocation}
+                className="inline-flex items-center space-x-2 text-blue-600 hover:underline"
+              >
+                <FaMapMarkerAlt />
+                <span>Change Location</span>
+              </button>
+            </div>
             {loading ? (
               <div className="flex justify-center py-20">
                 <FaSpinner className="animate-spin text-4xl text-gray-500" />
               </div>
             ) : nearby.length === 0 ? (
-              <p className="text-gray-600">No restaurants found within 10 km.</p>
+              <p className="text-gray-600">
+                No restaurants found within 10 km.
+              </p>
             ) : (
               <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
                 {nearby.map(r => (
                   <div
                     key={r._id}
-                    onClick={() => navigate(`/restaurants/${r._id}/menu`)}
+                    onClick={() =>
+                      navigate(`/restaurants/${r._id}/menu`)
+                    }
                     className="cursor-pointer bg-white p-6 rounded-2xl shadow-md hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 flex flex-col"
                   >
                     <span
@@ -193,14 +255,24 @@ export default function CustomerRestaurants() {
                           : 'bg-red-100 text-red-800'
                       }`}
                     >
-                      {r.isAvailable ? 'Open' : 'Closed'}
+                      {r.isAvailable
+                        ? 'Open'
+                        : 'Closed'}
                     </span>
-                    <h2 className="text-2xl font-bold text-gray-800 my-2">{r.name}</h2>
-                    <p className="text-gray-600 flex-1">{r.address}</p>
+                    <h2 className="text-2xl font-bold text-gray-800 my-2">
+                      {r.name}
+                    </h2>
+                    <p className="text-gray-600 flex-1">
+                      {r.address}
+                    </p>
                     <div className="flex items-center justify-between mt-4 text-gray-600">
                       <span className="flex items-center space-x-1">
                         <FaStar className="text-yellow-500" />
-                        <span>{r.rating != null ? r.rating.toFixed(1) : '—'}</span>
+                        <span>
+                          {r.rating != null
+                            ? r.rating.toFixed(1)
+                            : '—'}
+                        </span>
                       </span>
                       <span className="text-sm font-medium">
                         {r.distance.toFixed(1)} km

@@ -2,7 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
-import { FaArrowLeft, FaSpinner, FaPlus, FaMinus, FaStar } from 'react-icons/fa';
+import {
+  FaArrowLeft,
+  FaSpinner,
+  FaPlus,
+  FaMinus,
+  FaStar,
+} from 'react-icons/fa';
 
 export default function RestaurantMenu() {
   const { id } = useParams();
@@ -15,23 +21,49 @@ export default function RestaurantMenu() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
 
-  // Load restaurant & menu
+  // Load restaurant & menu, init quantities from stored cart
   useEffect(() => {
     async function load() {
       try {
         const [rRes, mRes] = await Promise.all([
           fetch(`/api/restaurants/getid/${id}`, { credentials: 'include' }),
-          fetch(`/api/menu/restaurant/${id}`, { credentials: 'include' })
+          fetch(`/api/menu/restaurant/${id}`, { credentials: 'include' }),
         ]);
         const rData = await rRes.json();
         const mData = await mRes.json();
         if (!rRes.ok) throw new Error(rData.message || 'Failed to load restaurant');
         if (!Array.isArray(mData)) throw new Error('Failed to load menu');
+
+        // init quantities to zero
+        const initQty = {};
+        mData.forEach(item => { initQty[item._id] = 0; });
+
+        // normalize stored cart
+        let stored = [];
+        const raw = localStorage.getItem('cart');
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              stored = parsed;
+            } else if (parsed && typeof parsed === 'object') {
+              stored = [parsed];
+            }
+          } catch {
+            stored = [];
+          }
+        }
+
+        // merge in existing order for this restaurant
+        const existing = stored.find(o => o.restaurantId === rData._id);
+        if (existing && Array.isArray(existing.items)) {
+          existing.items.forEach(it => {
+            initQty[it.id] = it.quantity;
+          });
+        }
+
         setRestaurant(rData);
         setMenuItems(mData);
-        // init quantites to zero
-        const initQty = {};
-        mData.forEach(item => { initQty[item._id] = 0 });
         setQuantities(initQty);
       } catch (err) {
         setError(err.message);
@@ -45,7 +77,7 @@ export default function RestaurantMenu() {
   const adjustQty = (itemId, delta) => {
     setQuantities(q => ({
       ...q,
-      [itemId]: Math.max(0, q[itemId] + delta)
+      [itemId]: Math.max(0, q[itemId] + delta),
     }));
   };
 
@@ -53,7 +85,8 @@ export default function RestaurantMenu() {
 
   const handleAddToCart = () => {
     setAdding(true);
-    // build cart: single restaurant
+
+    // build this restaurant's order items
     const items = menuItems
       .filter(item => quantities[item._id] > 0)
       .map(item => ({
@@ -63,12 +96,40 @@ export default function RestaurantMenu() {
         imageUrl: item.imageUrl,
         quantity: quantities[item._id],
       }));
-    const cart = {
-      restaurantId: restaurant._id,
-      restaurantName: restaurant.name,
-      items,
-    };
-    localStorage.setItem('cart', JSON.stringify(cart));
+
+    // normalize existing cart
+    let stored = [];
+    const raw = localStorage.getItem('cart');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          stored = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          stored = [parsed];
+        }
+      } catch {
+        stored = [];
+      }
+    }
+
+    // remove any old order for this restaurant
+    const others = stored.filter(o => o.restaurantId !== restaurant._id);
+
+    // add/update this restaurant's order
+    const newOrders = items.length
+      ? [
+          ...others,
+          {
+            restaurantId: restaurant._id,
+            restaurantName: restaurant.name,
+            items,
+          },
+        ]
+      : others;
+
+    // save back
+    localStorage.setItem('cart', JSON.stringify(newOrders));
     setAdding(false);
     navigate('/cart');
   };
@@ -106,7 +167,7 @@ export default function RestaurantMenu() {
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
-      <main className="flex-1 p-8 pb-24 space-y-8">
+      <main className="flex-1 p-8 pb-32 space-y-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 space-y-4 md:space-y-0">
           <button
@@ -120,9 +181,13 @@ export default function RestaurantMenu() {
             <div className="flex items-center space-x-2 mt-1">
               <FaStar className="text-yellow-500" />
               <span>{rating != null ? rating.toFixed(1) : '—'}</span>
-              <span className={`ml-4 px-2 py-1 text-sm font-semibold rounded-full ${
-                isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-              }`}>
+              <span
+                className={`ml-4 px-2 py-1 text-sm font-semibold rounded-full ${
+                  isAvailable
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-red-100 text-red-800'
+                }`}
+              >
                 {isAvailable ? 'Open' : 'Closed'}
               </span>
             </div>
@@ -142,12 +207,18 @@ export default function RestaurantMenu() {
                 alt={item.name}
                 className="w-full h-40 object-cover rounded-lg mb-4"
               />
-              <h3 className="text-xl font-semibold text-gray-800 mb-1">{item.name}</h3>
+              <h3 className="text-xl font-semibold text-gray-800 mb-1">
+                {item.name}
+              </h3>
               <p className="text-gray-600 mb-2 flex-1">{item.description}</p>
-              <p className="text-gray-800 font-bold mb-2">₨ {item.price.toFixed(2)}</p>
+              <p className="text-gray-800 font-bold mb-2">
+                ₨ {item.price.toFixed(2)}
+              </p>
               <span
                 className={`inline-block px-2 py-1 text-sm font-semibold rounded-full mb-4 ${
-                  item.isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  item.isAvailable
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-red-100 text-red-800'
                 }`}
               >
                 {item.isAvailable ? 'Available' : 'Unavailable'}
@@ -162,7 +233,9 @@ export default function RestaurantMenu() {
                 >
                   <FaMinus />
                 </button>
-                <span className="text-lg font-medium">{quantities[item._id]}</span>
+                <span className="text-lg font-medium">
+                  {quantities[item._id]}
+                </span>
                 <button
                   onClick={() => adjustQty(item._id, 1)}
                   disabled={!item.isAvailable}
