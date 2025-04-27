@@ -15,6 +15,7 @@ import EditMenuItem from './pages/menu/EditMenuItem';
 import CustomerRestaurants from './pages/restaurant/CustomerRestaurants';
 import RestaurantMenu from './pages/menu/RestaurantMenu';
 import Cart from './pages/menu/Cart';
+import Checkout from './pages/order/Checkout';
 function App() {
 
   return( <>
@@ -38,6 +39,7 @@ function App() {
       <Route path="/restaurants/customer" element={<CustomerRestaurants />} />
       <Route path="/restaurants/:id/menu" element={<RestaurantMenu />} />
       <Route path="/cart" element={<Cart />} />
+      <Route path="/checkout" element={<Checkout />} />
     </Routes>
     </>
   );
