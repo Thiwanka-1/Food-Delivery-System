@@ -6,12 +6,12 @@ dotenv.config();
 // Create a new order
 export const createOrder = async (req, res) => {
   try {
-    // 1) Save the order
     const { orderItems, restaurantId, deliveryAddress, totalPrice } = req.body;
     const userId = req.user.id;
     if (!orderItems || !restaurantId || !deliveryAddress || !totalPrice) {
       return res.status(400).json({ message: "Missing required fields" });
     }
+
     const newOrder = new Order({
       orderItems,
       userId,
@@ -22,97 +22,11 @@ export const createOrder = async (req, res) => {
     });
     const savedOrder = await newOrder.save();
 
-    // 2) Extract token for internal calls
-    const token = req.cookies.access_token ||
-                  (req.headers.authorization?.startsWith("Bearer ")
-                     ? req.headers.authorization.split(" ")[1]
-                     : null);
-    if (!token) {
-      return res.status(401).json({ message: "You are not authenticated!" });
-    }
-    const axiosConfig = { headers: { Cookie: `access_token=${token}` } };
-
-    // 3) Service base-URLs (from .env or Docker service names)
-    const REST_URL  = process.env.RESTAURANT_SERVICE_URL;
-    const USER_URL  = process.env.USER_SERVICE_URL;
-    const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL;
-
-    // 4) Get restaurant → ownerId & contact
-    const { data: restaurant } = await axios.get(
-      `${REST_URL}/getid/${restaurantId}`,
-      axiosConfig
-    );
-    const { owner_id: ownerId, contact: restaurantPhone } = restaurant;
-
-    // 5) Fetch owner’s details
-    const { data: ownerUser } = await axios.get(
-      `${USER_URL}/${ownerId}`,
-      axiosConfig
-    );
-    const { email: ownerEmail, phoneNumber: ownerPhone } = ownerUser;
-
-    // 6) Fetch customer’s details
-    const { data: customer } = await axios.get(
-      `${USER_URL}/${userId}`,
-      axiosConfig
-    );
-    const { email: custEmail, phoneNumber: custPhone } = customer;
-
-    // 7) Notify Restaurant (email + SMS)
-    await axios.post(
-      `${NOTIF_URL}/email`,
-      {
-        to:      ownerEmail,
-        subject: "New Order Received",
-        text:    `You have a new order (${savedOrder._id}).`,
-        type:    "order_placed",
-        payload: { orderId: savedOrder._id }
-      },
-      axiosConfig
-    );
-    if (ownerPhone) {
-      await axios.post(
-        `${NOTIF_URL}/sms`,
-        {
-          to:      ownerPhone,
-          message: `New order ${savedOrder._id} received.`,
-          type:    "order_placed",
-          payload: { orderId: savedOrder._id }
-        },
-        axiosConfig
-      );
-    }
-
-    // 8) Notify Customer (email + SMS)
-    await axios.post(
-      `${NOTIF_URL}/email`,
-      {
-        to:      custEmail,
-        subject: "Order Placed Successfully",
-        text:    `Your order (${savedOrder._id}) has been placed.`,
-        type:    "order_confirmed",
-        payload: { orderId: savedOrder._id }
-      },
-      axiosConfig
-    );
-    if (custPhone) {
-      await axios.post(
-        `${NOTIF_URL}/sms`,
-        {
-          to:      custPhone,
-          message: `Your order ${savedOrder._id} was placed successfully.`,
-          type:    "order_confirmed",
-          payload: { orderId: savedOrder._id }
-        },
-        axiosConfig
-      );
-    }
-
-    // 9) Return the saved order
-    res.status(201).json(savedOrder);
+    // Return immediately—notifications will fire after payment
+    return res.status(201).json(savedOrder);
   } catch (error) {
     console.error("createOrder error:", error);
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
   }
 };
 

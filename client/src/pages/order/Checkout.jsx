@@ -205,6 +205,17 @@ export default function Checkout() {
     );
   }
 
+  if (loadingRest || !restaurant) {
+       return (
+         <div className="flex min-h-screen bg-gray-50">
+           <Sidebar />
+           <main className="flex-1 p-8 flex items-center justify-center">
+             <FaSpinner className="animate-spin text-4xl text-gray-500" />
+           </main>
+         </div>
+       );
+     }
+
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />

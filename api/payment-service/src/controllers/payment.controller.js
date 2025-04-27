@@ -3,7 +3,9 @@ import dotenv from "dotenv";
 dotenv.config();
 import Payment from "../models/payment.model.js";
 import Stripe from "stripe";
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2020-08-27" });
+const stripe  = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2020-08-27" });
+import axios   from 'axios';
+import jwt from 'jsonwebtoken';
 
 /**
  * Create a Stripe PaymentIntent and record it.
@@ -60,121 +62,135 @@ export const getPaymentByOrder = async (req, res) => {
  * (Optional, but recommended for real-world scenarios.)
  */
 export const stripeWebhook = async (req, res) => {
-  const rawBody = req.body; // Buffer from express.raw()
-  const sig     = req.headers["stripe-signature"];
+  const sig = req.headers['stripe-signature'];
   let event;
 
+  // 1) Verify webhook signature
   try {
     event = stripe.webhooks.constructEvent(
-      rawBody,
+      req.body,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
-    console.warn("⚠️ Webhook signature failed:", err.message);
-    // Fallback for local dev
-    try {
-      event = JSON.parse(rawBody.toString("utf8"));
-    } catch (parseErr) {
-      console.error("❌ Cannot parse webhook JSON:", parseErr.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
+    console.warn("⚠️  Webhook signature failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Only handle succeeded or failed intents
-  if (
-    event.type === "payment_intent.succeeded" ||
-    event.type === "payment_intent.payment_failed"
-  ) {
-    const pi = event.data.object;
-    const status =
-      event.type === "payment_intent.succeeded" ? "succeeded" : "failed";
+  // 2) Only handle successful payments
+  if (event.type === 'payment_intent.succeeded') {
+    (async () => {
+      try {
+        const pi = event.data.object;
 
-    // 1) Update DB
-    const payment = await Payment.findOne({ paymentIntentId: pi.id });
-    if (payment) {
-      payment.status = status;
-      await payment.save();
-      console.log(`✅ Payment ${pi.id} marked ${status} in DB`);
+        // 2a) Mark the Payment record as succeeded
+        const payment = await Payment.findOne({ paymentIntentId: pi.id });
+        if (!payment) throw new Error("Payment record not found");
+        payment.status = 'succeeded';
+        await payment.save();
 
-      // 2) Fetch customer contact
-      const authConfig = {
-        headers: {
-          // if you use Bearer token auth, swap this in;
-          // we're assuming public user data endpoint for simplicity
-        },
-      };
-      const { data: customer } = await axios.get(
-        `${process.env.AUTH_SERVICE_URL}/${payment.userId}`,
-        authConfig
-      );
-      const { email, phoneNumber, username } = customer;
+        // 2b) Fetch the Order from order‐service (public GET)
+        const ORDER_URL = process.env.ORDER_SERVICE_URL; // e.g. http://localhost:8081/api/orders
+        const { data: order } = await axios.get(
+          `${ORDER_URL}/get/${payment.orderId}`
+        );
 
-      // 3) Prepare notification payloads
-      const notifyUrl = process.env.NOTIFICATION_SERVICE_URL;
-      const invoiceHtml = `
-        <h1>Invoice for Order ${payment.orderId}</h1>
-        <p><strong>Payment ID:</strong> ${payment._id}</p>
-        <p><strong>Amount:</strong> ${(payment.amount).toFixed(2)} ${payment.currency.toUpperCase()}</p>
-        <p><strong>Status:</strong> ${status}</p>
-        <p><strong>Date:</strong> ${new Date(payment.createdAt).toLocaleString()}</p>
-      `;
-      const emailSubject =
-        status === "succeeded"
-          ? `Payment Successful for Order ${payment.orderId}`
-          : `Payment Failed for Order ${payment.orderId}`;
-      const smsMessage =
-        status === "succeeded"
-          ? `Hi ${username}, your payment for order ${payment.orderId} succeeded!`
-          : `Hi ${username}, your payment for order ${payment.orderId} failed.`;
+        // 2c) Fetch Restaurant → owner_id (public GET)
+        const REST_URL = process.env.RESTAURANT_SERVICE_URL; // e.g. http://localhost:8081/api/restaurants
+        const { data: restaurant } = await axios.get(
+          `${REST_URL}/getid/${order.restaurantId}`
+        );
+        const ownerId = restaurant.owner_id;
 
-      // 4) Send Email + SMS in parallel
-      await Promise.all([
-        // Email
-        axios.post(
-          `${notifyUrl}/email`,
+        // 2d) Create a JWT for the user to call protected routes
+        const userToken = jwt.sign(
           {
-            to: email,
-            subject: emailSubject,
-            text: smsMessage,
-            html: invoiceHtml,
-            type:
-              status === "succeeded"
-                ? "payment_succeeded"
-                : "payment_failed",
-            payload: {
-              paymentId: payment._id,
-              orderId: payment.orderId,
-            },
+            id: order.userId,
+            isAdmin: false,
+            role: 'user'
           },
-          authConfig
-        ),
+          process.env.JWT_SECRET,
+          { expiresIn: '5m' }
+        );
+        const axiosConfig = {
+          headers: { Cookie: `access_token=${userToken}` }
+        };
 
-        // SMS (if number exists)
-        phoneNumber
-          ? axios.post(
-              `${notifyUrl}/sms`,
-              {
-                to: phoneNumber,
-                message: smsMessage,
-                type:
-                  status === "succeeded"
-                    ? "payment_succeeded"
-                    : "payment_failed",
-                payload: {
-                  paymentId: payment._id,
-                  orderId: payment.orderId,
-                },
-              },
-              authConfig
-            )
-          : Promise.resolve(),
-      ]);
-      console.log("📣 Customer notified of payment status");
-    }
+        // 2e) Fetch owner user details (protected)
+        const USER_URL = process.env.USER_SERVICE_URL; // e.g. http://localhost:8081/api/user
+        const { data: ownerUser } = await axios.get(
+          `${USER_URL}/${ownerId}`,
+          axiosConfig
+        );
+
+        // 2f) Fetch customer user details (protected)
+        const { data: customer } = await axios.get(
+          `${USER_URL}/${order.userId}`,
+          axiosConfig
+        );
+
+        // 2g) Send notifications (protected)
+        const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL; // e.g. http://localhost:8081/api/notifications
+
+        // Owner email
+        await axios.post(
+          `${NOTIF_URL}/email`,
+          {
+            to: ownerUser.email,
+            subject: `New Paid Order ${order._id}`,
+            text:    `You have a new paid order (${order._id}).`,
+            type:    "order_placed",
+            payload: { orderId: order._id }
+          },
+          axiosConfig
+        );
+        // Owner SMS
+        if (ownerUser.phoneNumber) {
+          await axios.post(
+            `${NOTIF_URL}/sms`,
+            {
+              to:      ownerUser.phoneNumber,
+              message: `New paid order ${order._id} received`,
+              type:    "order_placed",
+              payload: { orderId: order._id }
+            },
+            axiosConfig
+          );
+        }
+
+        // Customer email
+        await axios.post(
+          `${NOTIF_URL}/email`,
+          {
+            to:      customer.email,
+            subject: `Order Confirmed ${order._id}`,
+            text:    `Your payment for order ${order._id} succeeded.`,
+            type:    "payment_succeeded",
+            payload: { orderId: order._id }
+          },
+          axiosConfig
+        );
+        // Customer SMS
+        if (customer.phoneNumber) {
+          await axios.post(
+            `${NOTIF_URL}/sms`,
+            {
+              to:      customer.phoneNumber,
+              message: `Payment for order ${order._id} was successful.`,
+              type:    "payment_succeeded",
+              payload: { orderId: order._id }
+            },
+            axiosConfig
+          );
+        }
+
+        console.log(`✅ Notifications sent for order ${order._id}`);
+      } catch (err) {
+        console.error("⚠️ Webhook handler error:", err);
+      }
+    })();
   }
 
-  // Always respond 200 to Stripe
+  // 3) Always acknowledge the webhook to Stripe
   res.json({ received: true });
 };
-
