@@ -16,6 +16,7 @@ import CustomerRestaurants from './pages/restaurant/CustomerRestaurants';
 import RestaurantMenu from './pages/menu/RestaurantMenu';
 import Cart from './pages/menu/Cart';
 import Checkout from './pages/order/Checkout';
+import PaymentPage from './pages/payment/Payment';
 function App() {
 
   return( <>
@@ -40,6 +41,7 @@ function App() {
       <Route path="/restaurants/:id/menu" element={<RestaurantMenu />} />
       <Route path="/cart" element={<Cart />} />
       <Route path="/checkout" element={<Checkout />} />
+      <Route path="/payment" element={<PaymentPage />} />
     </Routes>
     </>
   );
