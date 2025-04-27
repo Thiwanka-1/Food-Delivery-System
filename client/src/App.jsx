@@ -12,7 +12,9 @@ import RestaurantDetails from './pages/restaurant/RestaurantDetails';
 import EditRestaurant from './pages/restaurant/EditRestaurant';
 import AddMenuItem from './pages/menu/AddMenuItem';
 import EditMenuItem from './pages/menu/EditMenuItem';
-
+import CustomerRestaurants from './pages/restaurant/CustomerRestaurants';
+import RestaurantMenu from './pages/menu/RestaurantMenu';
+import Cart from './pages/menu/Cart';
 function App() {
 
   return( <>
@@ -33,7 +35,9 @@ function App() {
 
       <Route path="/restaurants/:restaurantId/menu/add" element={<AddMenuItem />}/>
       <Route path="/restaurants/:restaurantId/menu/edit/:menuItemId" element={<EditMenuItem />}/>
-
+      <Route path="/restaurants/customer" element={<CustomerRestaurants />} />
+      <Route path="/restaurants/:id/menu" element={<RestaurantMenu />} />
+      <Route path="/cart" element={<Cart />} />
     </Routes>
     </>
   );

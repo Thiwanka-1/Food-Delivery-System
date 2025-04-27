@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
-import { FaArrowLeft, FaSave } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaSpinner } from 'react-icons/fa';
 
 export default function EditMenuItem() {
   const { restaurantId, menuItemId } = useParams();
@@ -19,6 +19,7 @@ export default function EditMenuItem() {
   const [preview, setPreview] = useState(null);
   const [errors, setErrors] = useState({});
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   // Load existing item
   useEffect(() => {
@@ -82,6 +83,8 @@ export default function EditMenuItem() {
       return;
     }
 
+    setLoading(true);
+    setMessage('');
     const data = new FormData();
     data.append('name', form.name);
     data.append('description', form.description);
@@ -105,6 +108,8 @@ export default function EditMenuItem() {
       }
     } catch {
       setMessage('Server error, please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -223,9 +228,15 @@ export default function EditMenuItem() {
             {/* Save */}
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold flex items-center justify-center space-x-2"
+              disabled={loading}
+              className={`w-full py-2 rounded-lg font-semibold flex items-center justify-center space-x-2 ${
+                loading
+                  ? 'bg-gray-400 cursor-not-allowed text-gray-700'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
             >
-              <FaSave /> <span>Save Changes</span>
+              {loading ? <FaSpinner className="animate-spin" /> : <FaSave />}
+              <span>{loading ? 'Saving...' : 'Save Changes'}</span>
             </button>
           </form>
         </div>

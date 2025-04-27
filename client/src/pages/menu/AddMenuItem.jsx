@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
+import { FaSpinner } from 'react-icons/fa';
 
 export default function AddMenuItem() {
   const { restaurantId } = useParams();
@@ -18,6 +19,7 @@ export default function AddMenuItem() {
   const [preview, setPreview] = useState(null);
   const [errors, setErrors] = useState({});
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   // Simple validation
   const validate = () => {
@@ -56,15 +58,17 @@ export default function AddMenuItem() {
       return;
     }
 
-    const data = new FormData();
-    data.append('name', form.name);
-    data.append('description', form.description);
-    data.append('price', form.price);
-    data.append('category', form.category);
-    data.append('isAvailable', form.isAvailable);
-    data.append('image', imageFile);
-
+    setLoading(true);
+    setMessage('');
     try {
+      const data = new FormData();
+      data.append('name', form.name);
+      data.append('description', form.description);
+      data.append('price', form.price);
+      data.append('category', form.category);
+      data.append('isAvailable', form.isAvailable);
+      data.append('image', imageFile);
+
       const res = await fetch(`/api/menu/restaurant/${restaurantId}`, {
         method: 'POST',
         credentials: 'include',
@@ -79,11 +83,13 @@ export default function AddMenuItem() {
         setForm({ name: '', description: '', price: '', category: '', isAvailable: true });
         setImageFile(null);
         setPreview(null);
-        // Optionally redirect back to your "My Restaurants" or menu list:
-        // navigate(`/restaurants/${restaurantId}`);
+        // Optionally redirect after a short delay:
+        // setTimeout(() => navigate(`/restaurants/${restaurantId}`), 1000);
       }
     } catch {
       setMessage('Server error, please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -207,9 +213,15 @@ export default function AddMenuItem() {
             {/* Submit */}
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold"
+              disabled={loading}
+              className={`w-full flex items-center justify-center space-x-2 py-2 rounded-lg font-semibold ${
+                loading
+                  ? 'bg-gray-400 cursor-not-allowed text-gray-200'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
             >
-              Add Item
+              {loading && <FaSpinner className="animate-spin" />}
+              <span>{loading ? 'Adding…' : 'Add Item'}</span>
             </button>
           </form>
         </div>

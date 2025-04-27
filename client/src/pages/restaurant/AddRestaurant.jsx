@@ -7,6 +7,7 @@ import {
   Marker,
   Autocomplete,
 } from '@react-google-maps/api';
+import { FaSpinner } from 'react-icons/fa';
 
 const libraries = ['places'];
 
@@ -26,6 +27,7 @@ export default function AddRestaurant() {
   });
   const [errors, setErrors] = useState({});
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const mapRef = useRef();
   const onMapLoad = useCallback(map => (mapRef.current = map), []);
@@ -89,6 +91,8 @@ export default function AddRestaurant() {
       return;
     }
 
+    setLoading(true);
+    setMessage('');
     try {
       const res = await fetch('/api/restaurants/add', {
         method: 'POST',
@@ -113,6 +117,8 @@ export default function AddRestaurant() {
       }
     } catch {
       setMessage('Server error, please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -232,9 +238,15 @@ export default function AddRestaurant() {
             {/* Submit */}
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold"
+              disabled={loading}
+              className={`w-full flex items-center justify-center py-2 rounded-lg font-semibold ${
+                loading
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
             >
-              Create Restaurant
+              {loading && <FaSpinner className="animate-spin mr-2" />}
+              <span>{loading ? 'Creating…' : 'Create Restaurant'}</span>
             </button>
           </form>
         </div>

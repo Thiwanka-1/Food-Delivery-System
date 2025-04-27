@@ -8,6 +8,7 @@ import {
   Marker,
   Autocomplete,
 } from '@react-google-maps/api';
+import { FaSpinner } from 'react-icons/fa';
 
 const libraries = ['places'];
 
@@ -31,6 +32,7 @@ export default function EditRestaurant() {
   const [markerPos, setMarkerPos] = useState(null);
   const [errors, setErrors] = useState({});
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const mapRef = useRef();
   const onMapLoad = useCallback(map => (mapRef.current = map), []);
@@ -53,7 +55,6 @@ export default function EditRestaurant() {
     setErrors(prev => ({ ...prev, location: '' }));
   };
 
-  // Load existing restaurant
   useEffect(() => {
     fetch(`/api/restaurants/getid/${id}`, { credentials: 'include' })
       .then(res => res.json())
@@ -118,7 +119,8 @@ export default function EditRestaurant() {
       setErrors(errs);
       return;
     }
-
+    setLoading(true);
+    setMessage('');
     try {
       const res = await fetch(`/api/restaurants/update/${id}`, {
         method: 'PUT',
@@ -135,6 +137,8 @@ export default function EditRestaurant() {
       }
     } catch {
       setMessage('Server error, please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -201,9 +205,7 @@ export default function EditRestaurant() {
                 <GoogleMap
                   onLoad={onMapLoad}
                   mapContainerStyle={{ width: '100%', height: '100%' }}
-                  center={
-                    markerPos || { lat: 6.9271, lng: 79.8612 }
-                  }
+                  center={markerPos || { lat: 6.9271, lng: 79.8612 }}
                   zoom={markerPos ? 15 : 5}
                   onClick={handleMapClick}
                 >
@@ -249,9 +251,15 @@ export default function EditRestaurant() {
 
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold"
+              disabled={loading}
+              className={`w-full py-2 rounded-lg font-semibold flex justify-center items-center ${
+                loading
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
             >
-              Save Changes
+              {loading && <FaSpinner className="animate-spin mr-2" />}
+              {loading ? 'Saving...' : 'Save Changes'}
             </button>
           </form>
         </div>
