@@ -70,23 +70,34 @@ export const signup = async (req, res, next) => {
     // 5) If driver, also create a record in Delivery Service
     if (assignedRole === "driver") {
       const driverData = {
-        userId: savedUser._id,
+        userId:          savedUser._id,
         currentLocation: {
-          latitude: newUser.location.latitude,
+          latitude:  newUser.location.latitude,
           longitude: newUser.location.longitude
         },
-        availability: "available"
+        availability:    "available",
+
+        // explicit fields matching the updated schema:
+        activeOrderId:   null,
+        nearAlertSent:   false,
+        deliveriesCount: 0
       };
 
-      // Use the DELIVERY_SERVICE_URL from .env
-      const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL;
+      const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL; 
+      // e.g. "http://localhost:3003/api/drivers"
       if (!DELIVERY_URL) {
         console.warn("DELIVERY_SERVICE_URL not set—skipping driver creation.");
       } else {
-        await axios.post(
-          `${DELIVERY_URL}/add`,
-          driverData
-        );
+        try {
+          await axios.post(
+            `${DELIVERY_URL}/add`,
+            driverData,
+            { timeout: 5000 }
+          );
+        } catch (err) {
+          console.error("Driver‐service error:", err.message);
+          // we don't block signup if driver record fails
+        }
       }
     }
 

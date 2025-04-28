@@ -17,6 +17,7 @@ import RestaurantMenu from './pages/menu/RestaurantMenu';
 import Cart from './pages/menu/Cart';
 import Checkout from './pages/order/Checkout';
 import PaymentPage from './pages/payment/Payment';
+import OrderDetails from './pages/order/OrderDetails';
 function App() {
 
   return( <>
@@ -42,6 +43,8 @@ function App() {
       <Route path="/cart" element={<Cart />} />
       <Route path="/checkout" element={<Checkout />} />
       <Route path="/payment" element={<PaymentPage />} />
+      <Route path="/orders/:orderId" element={<OrderDetails />} />
+
     </Routes>
     </>
   );
