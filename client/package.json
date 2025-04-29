@@ -21,6 +21,7 @@
     "EduCode": "file:..",
     "file-saver": "^2.0.5",
     "firebase": "^10.12.5",
+    "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
     "leaflet": "^1.9.4",

@@ -18,6 +18,12 @@ import Cart from './pages/menu/Cart';
 import Checkout from './pages/order/Checkout';
 import PaymentPage from './pages/payment/Payment';
 import OrderDetails from './pages/order/OrderDetails';
+import MyOrders from './pages/order/MyOrders';
+import OwnerOrders from './pages/order/OwnerOrders';
+import OwnerOrderDetails from './pages/order/OwnerOrderDetails';
+import AdminAddUser from './pages/AdminAddUser';
+import DriverOrders from './pages/driver/DriverOrders';
+import DriverOrderDetails from './pages/driver/DriverOrderDetails';
 function App() {
 
   return( <>
@@ -44,7 +50,15 @@ function App() {
       <Route path="/checkout" element={<Checkout />} />
       <Route path="/payment" element={<PaymentPage />} />
       <Route path="/orders/:orderId" element={<OrderDetails />} />
+      <Route path="/orders/my" element={<MyOrders />} />
+      <Route path="/orders/owner" element={<OwnerOrders />} />
+      <Route path="/owner/orders/:orderId" element={<OwnerOrderDetails />} />
+      <Route path="/admin/adduser" element={<AdminAddUser />} />
 
+      <Route path="/driver/orders" element={<DriverOrders />} />
+      <Route path="/driver/orders/:orderId" element={<DriverOrderDetails />} />
+
+      {/* Redirect to sign-in if no match */}
     </Routes>
     </>
   );

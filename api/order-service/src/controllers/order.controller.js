@@ -226,3 +226,74 @@ export const cancelOrder = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+/**
+ * Get all orders for a given restaurant
+ */
+export const getOrdersByRestaurant = async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+    // Optional: verify that req.user.id is the owner of this restaurant
+
+    const orders = await Order.find({ restaurantId })
+      .sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (error) {
+    console.error("getOrdersByRestaurant error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+export const getOrdersByDriver = async (req, res) => {
+  try {
+    // 1) Find “driver” via Delivery service
+    const DELIVERY_URL = process.env.DELIVERY_SERVICE_URL; 
+    const token =
+      req.cookies.access_token ||
+      (req.headers.authorization?.split(" ")[1] || "");
+    const authHeaders = { headers: { Cookie: `access_token=${token}` } };
+
+    const { data: driver } = await axios.get(
+      `${DELIVERY_URL}/user/${req.user.id}`,
+      authHeaders
+    );
+    if (!driver?._id) {
+      return res.status(404).json({ message: "Driver record not found" });
+    }
+
+    // 2) Query local Orders DB
+    const orders = await Order.find({ driverId: driver._id });
+
+    // 3) Enrich them (restaurant + menu) exactly as before
+    const REST_URL = process.env.RESTAURANT_SERVICE_URL;
+    const MENU_URL = process.env.MENU_SERVICE_URL;
+
+    const enriched = await Promise.all(
+      orders.map(async order => {
+        const { data: restaurant } = await axios.get(
+          `${REST_URL}/getid/${order.restaurantId}`
+        );
+        const { data: menu } = await axios.get(
+          `${MENU_URL}/restaurant/${order.restaurantId}`
+        );
+        const enrichedItems = order.orderItems.map(item => {
+          const menuItemDetails = menu.find(
+            mi => mi._id === item.menuItemId.toString()
+          );
+          return { ...item.toObject(), menuItemDetails };
+        });
+        return {
+          ...order.toObject(),
+          restaurant,
+          orderItems: enrichedItems
+        };
+      })
+    );
+
+    res.json(enriched);
+  } catch (error) {
+    console.error("getOrdersByDriver error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};

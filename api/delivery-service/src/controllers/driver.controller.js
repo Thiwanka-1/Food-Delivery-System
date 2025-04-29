@@ -30,13 +30,12 @@ export const updateDriverLocation = async (req, res) => {
     await driver.save();
 
     // 2) Broadcast via Socket.IO (include orderId)
-    const io = req.app.locals.io;
-    if (io) {
-      io.emit("driverLocationUpdate", {
-        orderId:  driver.activeOrderId,
-        driverId,
-        latitude,
-        longitude
+    if (req.app.locals.io) {
+      req.app.locals.io.emit("driverLocationUpdate", {
+        orderId:  driver.activeOrderId,  // ← MUST be here
+        driverId: driver._id,
+        latitude: latitude,
+        longitude: longitude
       });
     }
 
@@ -420,67 +419,82 @@ export const assignDriverToOrder = async (req, res) => {
       });
     }
 
-    // 10) Notify customer, driver, and owner
     const USER_URL  = process.env.USER_SERVICE_URL;
     const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL;
 
+    // fetch all three user records in parallel
     const [{ data: customer }, { data: driverUser }, { data: ownerUser }] =
       await Promise.all([
-        axios.get(`${USER_URL}/${order.userId}`, authConfig),
+        axios.get(`${USER_URL}/${order.userId}`,    authConfig),
         axios.get(`${USER_URL}/${selected.userId}`, authConfig),
-        axios.get(`${USER_URL}/${ownerId}`, authConfig),
+        axios.get(`${USER_URL}/${ownerId}`,         authConfig),
       ]);
 
-    const notify = (endpoint, payload) =>
-      axios.post(`${NOTIF_URL}/${endpoint}`, payload, authConfig)
-        .catch(console.error);
+    // helper to catch but not throw
+    const safePost = (url, body) => axios.post(url, body, authConfig).catch(console.error);
 
-    // Customer
-    const custPayload = {
-      to:      customer.email,
-      subject: `Driver en route for Order ${orderId}`,
-      text:    `A driver is on the way to your restaurant for order ${orderId}.`,
-      type:    'driver_assigned',
-      payload: { orderId, driverId: selected._id }
-    };
+    // ––––– Customer –––––
+    const custText = `A driver is on the way for your order ${orderId}.`;
     await Promise.all([
-      notify('email', custPayload),
+      // email
+      safePost(`${NOTIF_URL}/email`, {
+        to:      customer.email,
+        subject: `Driver en route for Order ${orderId}`,
+        text:    custText,
+        type:    'driver_assigned',
+        payload: { orderId, driverId: selected._id }
+      }),
+      // sms
       customer.phoneNumber
-        ? notify('sms',    { ...custPayload, to: customer.phoneNumber })
+        ? safePost(`${NOTIF_URL}/sms`, {
+            to:      customer.phoneNumber,
+            message: custText,
+            type:    'driver_assigned',
+            payload: { orderId, driverId: selected._id }
+          })
         : Promise.resolve()
     ]);
 
-    // Driver
-    const drvPayload = {
-      to:      driverUser.email,
-      subject: `New assignment: Order ${orderId}`,
-      text:    `Please pick up order ${orderId} from ${restaurant.name}.`,
-      type:    'driver_assigned',
-      payload: { orderId }
-    };
+    // ––––– Driver –––––
+    const drvText = `Pick up order ${orderId} from ${restaurant.name}.`;
     await Promise.all([
-      notify('email', drvPayload),
+      safePost(`${NOTIF_URL}/email`, {
+        to:      driverUser.email,
+        subject: `New assignment: Order ${orderId}`,
+        text:    drvText,
+        type:    'driver_assigned',
+        payload: { orderId }
+      }),
       driverUser.phoneNumber
-        ? notify('sms', { ...drvPayload, to: driverUser.phoneNumber })
+        ? safePost(`${NOTIF_URL}/sms`, {
+            to:      driverUser.phoneNumber,
+            message: drvText,
+            type:    'driver_assigned',
+            payload: { orderId }
+          })
         : Promise.resolve()
     ]);
 
-    // Restaurant owner
-    const ownerPayload = {
-      to:      ownerUser.email,
-      subject: `Driver assigned for Order ${orderId}`,
-      text:    `A driver has been assigned to order ${orderId}.`,
-      type:    'driver_assigned',
-      payload: { orderId }
-    };
+    // ––––– Owner –––––
+    const ownText = `A driver has been assigned to order ${orderId}.`;
     await Promise.all([
-      notify('email', ownerPayload),
+      safePost(`${NOTIF_URL}/email`, {
+        to:      ownerUser.email,
+        subject: `Driver assigned for Order ${orderId}`,
+        text:    ownText,
+        type:    'driver_assigned',
+        payload: { orderId }
+      }),
       ownerUser.phoneNumber
-        ? notify('sms', { ...ownerPayload, to: ownerUser.phoneNumber })
+        ? safePost(`${NOTIF_URL}/sms`, {
+            to:      ownerUser.phoneNumber,
+            message: ownText,
+            type:    'driver_assigned',
+            payload: { orderId }
+          })
         : Promise.resolve()
     ]);
 
-    // 11) Return success
     return res.json({
       message: 'Driver assigned successfully',
       order,
@@ -512,81 +526,76 @@ export const updateDriverAvailability = async (req, res) => {
 };
 
 export const confirmPickup = async (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) {
+    return res.status(400).json({ message: "orderId is required" });
+  }
+
+  // Build authConfig exactly as before...
+  const token = req.cookies?.access_token || (req.headers.authorization?.split(" ")[1] || "");
+  const authConfig = { headers: { Cookie: `access_token=${token}` } };
+
+  // 1) Update the order status
+  let updatedOrder;
   try {
-    const { orderId } = req.body;
-    if (!orderId) {
-      return res.status(400).json({ message: "orderId is required" });
-    }
-
-    // 1) Build auth config for internal service calls
-    const token = req.cookies?.access_token ||
-                  (req.headers.authorization?.split(" ")[1] || "");
-    const authConfig = { headers: { Cookie: `access_token=${token}` } };
-
-    // 2) Patch order status to "picked_up"
     const ORDER_URL = process.env.ORDER_SERVICE_URL;
-    const { data: updatedOrder } = await axios.patch(
+    console.debug("Patching order at:", `${ORDER_URL}/${orderId}/status`);
+    const resp = await axios.patch(
       `${ORDER_URL}/${orderId}/status`,
       { status: "picked_up" },
       authConfig
     );
-
-    // 3) Broadcast Socket.IO event so clients can switch map to driver→customer
-    const io = req.app.locals.io;
-    if (io) {
-      io.emit("orderPickedUp", { orderId });
+    updatedOrder = resp.data;
+  } catch (err) {
+    console.error("Order status update failed:", err.response?.status, err.response?.data);
+    // If the order really wasn’t found:
+    if (err.response?.status === 404) {
+      return res.status(404).json({ message: "Order not found when marking picked_up" });
     }
+    return res.status(500).json({ message: "Could not update order status: " + (err.message || err) });
+  }
 
-    // 4) Fetch customer contact info
-    const USER_URL = process.env.USER_SERVICE_URL;
-    const { data: customer } = await axios.get(
-      `${USER_URL}/${updatedOrder.userId}`,
-      authConfig
-    );
+  // 2) Broadcast to your clients
+  if (req.app.locals.io) {
+    req.app.locals.io.emit("orderPickedUp", { orderId });
+  }
 
-    // 5) Notify customer via email + SMS
+  // 3) Fetch customer & notify — same as before…
+  try {
+    const USER_URL  = process.env.USER_SERVICE_URL;
+    const customer  = (await axios.get(`${USER_URL}/${updatedOrder.userId}`, authConfig)).data;
     const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL;
-    const subject = `Your Order ${orderId} Is On Its Way`;
-    const text    = `Good news! Your order (${orderId}) has been picked up and is on its way to you.`;
+    const subject   = `Your Order ${orderId} Is On Its Way`;
+    const text      = `Good news! Your order (${orderId}) has been picked up and is on its way to you.`;
 
-    // Email
-    await axios.post(
-      `${NOTIF_URL}/email`,
-      {
-        to:      customer.email,
-        subject,
-        text,
+    await axios.post(`${NOTIF_URL}/email`, {
+      to:      customer.email,
+      subject, text,
+      type:    "order_picked_up",
+      payload: { orderId }
+    }, authConfig);
+
+    if (customer.phoneNumber) {
+      await axios.post(`${NOTIF_URL}/sms`, {
+        to:      customer.phoneNumber,
+        message: text,
         type:    "order_picked_up",
         payload: { orderId }
-      },
-      authConfig
-    );
-
-    // SMS (if phoneNumber exists)
-    if (customer.phoneNumber) {
-      await axios.post(
-        `${NOTIF_URL}/sms`,
-        {
-          to:      customer.phoneNumber,
-          message: text,
-          type:    "order_picked_up",
-          payload: { orderId }
-        },
-        authConfig
-      );
+      }, authConfig);
     }
 
-    // 6) Return success & updated order
-    return res.json({
-      message: "Order marked as picked up and customer notified",
-      order:   updatedOrder
-    });
-
-  } catch (error) {
-    console.error("confirmPickup error:", error);
-    return res.status(500).json({ message: error.message });
+  } catch (notifyErr) {
+    console.error("Notify customer failed:", notifyErr);
+    // but we don’t want to fail the whole request if notification breaks
   }
+
+  // 4) Return the updated order
+  return res.json({
+    message: "Order marked as picked up and customer notified",
+    order:   updatedOrder
+  });
 };
+
 
 export const confirmDelivery = async (req, res) => {
   try {
@@ -717,5 +726,16 @@ export const confirmDelivery = async (req, res) => {
   } catch (error) {
     console.error("confirmDelivery error:", error);
     return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDriverByUserId = async (req, res) => {
+  try {
+    const driver = await Driver.findOne({ userId: req.params.userId });
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+    res.json(driver);
+  } catch (err) {
+    console.error("getDriverByUserId error:", err);
+    res.status(500).json({ message: err.message });
   }
 };

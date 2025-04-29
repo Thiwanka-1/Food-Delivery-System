@@ -1,5 +1,5 @@
 import express from 'express';
-import { createDriver, updateDriverLocation, getDriverById, assignDriverToOrder,updateDriverAvailability, confirmPickup, confirmDelivery  } from '../controllers/driver.controller.js';
+import { createDriver, updateDriverLocation, getDriverById, assignDriverToOrder,updateDriverAvailability, confirmPickup, confirmDelivery, getDriverByUserId  } from '../controllers/driver.controller.js';
 import { verifyToken } from "../utils/verifyUser.js";
 
 const router = express.Router();
@@ -19,6 +19,7 @@ router.patch("/:id/availability", verifyToken, updateDriverAvailability);
 
 // Get driver details by ID
 router.get("/get/:id", getDriverById);
+router.get("/user/:userId", getDriverByUserId);
 
 
 

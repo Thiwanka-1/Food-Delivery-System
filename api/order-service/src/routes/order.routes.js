@@ -1,11 +1,12 @@
 import express from "express";
-import { createOrder, updateOrder, updateOrderStatus, getOrderById, getOrdersByUser, cancelOrder } from "../controllers/order.controller.js";
+import { createOrder, updateOrder, updateOrderStatus, getOrderById, getOrdersByUser, cancelOrder, getOrdersByRestaurant, getOrdersByDriver } from "../controllers/order.controller.js";
 import { verifyToken } from "../utils/verifyUser.js";
 
 const router = express.Router();
 
 // Create a new order (protected route)
 router.post("/add", verifyToken, createOrder);
+router.get("/driver", verifyToken, getOrdersByDriver);
 
 // Update order details (if modifications are allowed)
 router.put("/update/:id", verifyToken, updateOrder);
@@ -19,6 +20,7 @@ router.get("/user/:userId", verifyToken, getOrdersByUser);
 router.patch("/:id/status", verifyToken, updateOrderStatus);
 
 router.patch("/:id/cancel", cancelOrder);
+router.get("/restaurant/:restaurantId", verifyToken, getOrdersByRestaurant);
 
 
 export default router;
