@@ -136,14 +136,14 @@ export const getFeedbackByOrder = async (req, res, next) => {
   try {
     const { orderId } = req.params;
     const query = { order: orderId };
+    // non-admins only see their own feedback
     if (!req.user.isAdmin) {
       query.user = req.user.id;
     }
 
-    const list = await Feedback.find(query)
-      .populate("user",  "username email")
-      .populate("order", "_id totalPrice status");
-    res.json(list);
+    // Just return the raw feedback docs:
+    const list = await Feedback.find(query).lean();
+    return res.json(list);
   } catch (err) {
     next(errorHandler(500, err.message));
   }

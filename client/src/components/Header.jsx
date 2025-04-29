@@ -1,6 +1,7 @@
 // src/components/Header.jsx
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import logo from './logo3.png'; // ← point this at your logo file
 
 export default function Header() {
   const navigate = useNavigate();
@@ -36,10 +37,10 @@ export default function Header() {
   };
 
   return (
-    <header className="bg-white border-b shadow-sm px-6 py-4 flex justify-between items-center">
+    <header className="bg-white border-b shadow-sm px-10 flex justify-between items-center">
       {/* Logo / App Name */}
-      <Link to="/" className="text-2xl font-extrabold text-indigo-600 hover:text-indigo-700">
-        QuickEats
+      <Link to="/">
+        <img src={logo} alt="Quick Eats" className="h-24" />
       </Link>
 
       {/* Nav buttons */}

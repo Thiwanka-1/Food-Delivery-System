@@ -101,7 +101,7 @@ export default function Sidebar() {
           </button>
         </div>
 
-        <div className="p-6 text-2xl font-bold text-blue-600">CookingApp</div>
+        <div className="p-2 text-2xl font-bold text-blue-600"></div>
 
         <nav className="flex-1 px-4">
           {menu.map(({ to, label, icon: Icon }) => (
