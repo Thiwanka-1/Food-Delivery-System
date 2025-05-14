@@ -59,6 +59,7 @@ export default function Sidebar() {
       { to: '/restaurants/customer', label: 'Find Restaurants', icon: FaSearch },
       { to: '/orders/my',            label: 'My Orders',        icon: FaShoppingCart },
       { to: '/profile',              label: 'Profile',          icon: FaUser },
+      { to: '/cart',              label: 'Cart',          icon: FaShoppingCart },
     ];
   }
 

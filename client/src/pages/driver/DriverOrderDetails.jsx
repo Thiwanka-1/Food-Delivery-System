@@ -254,7 +254,7 @@ export default function DriverOrderDetails() {
 
         {/* Actions */}
         <div className="space-x-4">
-          {status === "driver_assigned" && (
+          {(status === "driver_assigned" || status === "ready") && (
             <button
               onClick={handleConfirmPickup}
               disabled={pickupLoading}
