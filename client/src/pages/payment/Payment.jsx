@@ -9,7 +9,7 @@ import {
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js';
-import { FaSpinner } from 'react-icons/fa';
+import { FaSpinner, FaCheckCircle } from 'react-icons/fa';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
@@ -57,7 +57,7 @@ function PaymentForm() {
     })();
   }, [orderId]);
 
-  // 2) Create Stripe PaymentIntent when user submits
+  // 2) Create PaymentIntent & confirm payment
   const handlePay = async e => {
     e.preventDefault();
     if (!stripe || !elements || !order) return;
@@ -66,26 +66,40 @@ function PaymentForm() {
 
     try {
       const userId = localStorage.getItem('userId');
-      const amount = order.totalPrice; // as recorded in the order
       const res = await fetch('/api/payments/create', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, userId, amount }),
+        body: JSON.stringify({
+          orderId,
+          userId,
+          amount: order.totalPrice,
+        }),
       });
-      const { clientSecret, paymentId, message } = await res.json();
+      const { clientSecret, message } = await res.json();
       if (!res.ok) throw new Error(message || 'Payment initialization failed');
 
       setCreating(false);
       setProcessing(true);
 
-      // 3) Confirm card payment
       const card = elements.getElement(CardElement);
       const result = await stripe.confirmCardPayment(clientSecret, {
         payment_method: { card },
       });
       if (result.error) throw result.error;
-      // 4) Success: navigate to order tracking page
+
+      // on success, remove from cart
+      const raw = localStorage.getItem('cart');
+      const current = JSON.parse(localStorage.getItem('currentOrder') || 'null');
+      if (raw && current) {
+        const cart = JSON.parse(raw).filter(
+          o => o.restaurantId !== current.restaurantId
+        );
+        if (cart.length) localStorage.setItem('cart', JSON.stringify(cart));
+        else localStorage.removeItem('cart');
+      }
+      localStorage.removeItem('currentOrder');
+
       navigate(`/orders/${orderId}`);
     } catch (e) {
       setError(e.message);
@@ -105,7 +119,7 @@ function PaymentForm() {
     );
   }
 
-  if (error) {
+  if (error && !order) {
     return (
       <div className="flex min-h-screen bg-gray-50">
         <Sidebar />
@@ -116,7 +130,6 @@ function PaymentForm() {
     );
   }
 
-  // Order summary
   const subtotal = order.orderItems.reduce(
     (sum, it) => sum + it.quantity * it.price,
     0
@@ -125,20 +138,16 @@ function PaymentForm() {
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
-      <main className="flex-1 p-8 flex justify-center">
-        <div className="w-full max-w-lg space-y-8">
-          <h1 className="text-3xl font-bold text-center mb-4">
-            Payment for Order #{order._id}
-          </h1>
-
-          {/* Order Summary */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-2xl font-semibold mb-4">Order Summary</h2>
-            <div className="divide-y">
+      <main className="flex-1 p-8 flex items-start justify-center">
+        <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* ─── ORDER SUMMARY PANEL ─── */}
+          <div className="bg-white p-8 rounded-lg shadow-lg">
+            <h2 className="text-3xl font-bold mb-6">Order Summary</h2>
+            <div className="space-y-4">
               {order.orderItems.map(item => (
                 <div
                   key={item.menuItemId}
-                  className="flex items-center py-3 space-x-4"
+                  className="flex items-center space-x-4"
                 >
                   <img
                     src={item.menuItemDetails.imageUrl}
@@ -146,7 +155,9 @@ function PaymentForm() {
                     className="w-16 h-16 object-cover rounded"
                   />
                   <div className="flex-1">
-                    <p className="font-medium">{item.menuItemDetails.name}</p>
+                    <p className="font-medium">
+                      {item.menuItemDetails.name}
+                    </p>
                     <p className="text-gray-600">
                       {item.quantity} × ₨ {item.price.toFixed(2)}
                     </p>
@@ -157,56 +168,65 @@ function PaymentForm() {
                 </div>
               ))}
             </div>
-            <div className="mt-6 text-right space-y-1">
-              <div>
-                <span className="font-medium">Subtotal:</span> ₨{' '}
-                {subtotal.toFixed(2)}
+            <div className="mt-8 border-t pt-4 space-y-2 text-right">
+              <div className="text-lg">
+                <span className="font-medium">Subtotal:</span>{' '}
+                ₨ {subtotal.toFixed(2)}
               </div>
-              <div className="text-xl font-bold">
-                Total Due: ₨ {order.totalPrice.toFixed(2)}
-              </div>
+              <div className="text-2xl font-bold">Total Due: ₨ {order.totalPrice.toFixed(2)}</div>
             </div>
           </div>
 
-          {/* Payment Form */}
-          <form
-            onSubmit={handlePay}
-            className="bg-white p-6 rounded-lg shadow-md space-y-4"
-          >
-            <h2 className="text-2xl font-semibold">Enter Payment Details</h2>
-            <div className="p-4 border rounded">
-              <CardElement
-                options={{
-                  style: {
-                    base: { fontSize: '16px', color: '#333' },
-                    invalid: { color: '#e53e3e' },
-                  },
-                }}
-              />
-            </div>
-            {error && <p className="text-red-600">{error}</p>}
+          {/* ─── PAYMENT FORM PANEL ─── */}
+          <div className="bg-white p-8 rounded-lg shadow-lg">
+            <h2 className="text-3xl font-bold mb-6">Payment Details</h2>
+            <form onSubmit={handlePay} className="space-y-6">
+              <div>
+                <label className="block text-gray-700 mb-2">
+                  Card Information
+                </label>
+                <div className="p-4 border border-gray-300 rounded-lg">
+                  <CardElement
+                    options={{
+                      style: {
+                        base: {
+                          fontSize: '16px',
+                          color: '#333',
+                        },
+                        invalid: {
+                          color: '#e53e3e',
+                        },
+                      },
+                    }}
+                  />
+                </div>
+              </div>
+              {error && <p className="text-red-600">{error}</p>}
 
-            <button
-              type="submit"
-              disabled={!stripe || creating || processing}
-              className={`w-full py-3 rounded-lg font-semibold text-white flex justify-center items-center space-x-2 ${
-                creating || processing
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-            >
-              {(creating || processing) && (
-                <FaSpinner className="animate-spin" />
-              )}
-              <span>
-                {creating
-                  ? 'Initializing…'
-                  : processing
-                  ? 'Processing…'
-                  : `Pay ₨ ${order.totalPrice.toFixed(2)}`}
-              </span>
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={!stripe || creating || processing}
+                className={`w-full flex items-center justify-center space-x-2 py-3 rounded-lg text-white font-semibold transition ${
+                  creating || processing
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {creating || processing ? (
+                  <FaSpinner className="animate-spin" />
+                ) : (
+                  <FaCheckCircle />
+                )}
+                <span>
+                  {creating
+                    ? 'Initializing…'
+                    : processing
+                    ? 'Processing…'
+                    : `Pay ₨ ${order.totalPrice.toFixed(2)}`}
+                </span>
+              </button>
+            </form>
+          </div>
         </div>
       </main>
     </div>
