@@ -65,7 +65,6 @@ export const stripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
-  // 1) Verify webhook signature
   try {
     event = stripe.webhooks.constructEvent(
       req.body,
@@ -77,66 +76,58 @@ export const stripeWebhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // 2) Only handle successful payments
   if (event.type === 'payment_intent.succeeded') {
     (async () => {
       try {
         const pi = event.data.object;
 
-        // 2a) Mark the Payment record as succeeded
+        // … find & update Payment …
         const payment = await Payment.findOne({ paymentIntentId: pi.id });
         if (!payment) throw new Error("Payment record not found");
         payment.status = 'succeeded';
         await payment.save();
 
-        // 2b) Fetch the Order from order‐service (public GET)
-        const ORDER_URL = process.env.ORDER_SERVICE_URL; // e.g. http://localhost:8081/api/orders
+        // fetch the order
+        const ORDER_URL = process.env.ORDER_SERVICE_URL;
         const { data: order } = await axios.get(
           `${ORDER_URL}/get/${payment.orderId}`
         );
 
-        // 2c) Fetch Restaurant → owner_id (public GET)
-        const REST_URL = process.env.RESTAURANT_SERVICE_URL; // e.g. http://localhost:8081/api/restaurants
+        // fetch the restaurant owner
+        const REST_URL = process.env.RESTAURANT_SERVICE_URL;
         const { data: restaurant } = await axios.get(
           `${REST_URL}/getid/${order.restaurantId}`
         );
         const ownerId = restaurant.owner_id;
 
-        // 2d) Create a JWT for the user to call protected routes
+        // **use a single JWT for both customer & owner calls**
         const userToken = jwt.sign(
-          {
-            id: order.userId,
-            isAdmin: false,
-            role: 'user'
-          },
+          { id: order.userId, isAdmin: false, role: 'user' },
           process.env.JWT_SECRET,
           { expiresIn: '5m' }
         );
         const axiosConfig = {
-          headers: { Cookie: `access_token=${userToken}` }
+          headers: {
+            // cookie-parser will pick this up
+            Cookie: `access_token=${userToken}`,
+            // and your verifyToken util will also check Authorization
+            Authorization: `Bearer ${userToken}`,
+          },
+          withCredentials: true,
         };
 
-        // 2e) Fetch owner user details (protected)
-        const USER_URL = process.env.USER_SERVICE_URL; // e.g. http://localhost:8081/api/user
+        const USER_URL  = process.env.USER_SERVICE_URL;
+        const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL;
+
+        // → Owner email
         const { data: ownerUser } = await axios.get(
           `${USER_URL}/${ownerId}`,
           axiosConfig
         );
-
-        // 2f) Fetch customer user details (protected)
-        const { data: customer } = await axios.get(
-          `${USER_URL}/${order.userId}`,
-          axiosConfig
-        );
-
-        // 2g) Send notifications (protected)
-        const NOTIF_URL = process.env.NOTIFICATION_SERVICE_URL; // e.g. http://localhost:8081/api/notifications
-
-        // Owner email
         await axios.post(
           `${NOTIF_URL}/email`,
           {
-            to: ownerUser.email,
+            to:      ownerUser.email,
             subject: `New Paid Order ${order._id}`,
             text:    `You have a new paid order (${order._id}).`,
             type:    "order_placed",
@@ -144,7 +135,7 @@ export const stripeWebhook = async (req, res) => {
           },
           axiosConfig
         );
-        // Owner SMS
+        // → Owner SMS
         if (ownerUser.phoneNumber) {
           await axios.post(
             `${NOTIF_URL}/sms`,
@@ -158,7 +149,11 @@ export const stripeWebhook = async (req, res) => {
           );
         }
 
-        // Customer email
+        // → Customer email
+        const { data: customer } = await axios.get(
+          `${USER_URL}/${order.userId}`,
+          axiosConfig
+        );
         await axios.post(
           `${NOTIF_URL}/email`,
           {
@@ -170,7 +165,7 @@ export const stripeWebhook = async (req, res) => {
           },
           axiosConfig
         );
-        // Customer SMS
+        // → Customer SMS
         if (customer.phoneNumber) {
           await axios.post(
             `${NOTIF_URL}/sms`,
@@ -191,6 +186,8 @@ export const stripeWebhook = async (req, res) => {
     })();
   }
 
-  // 3) Always acknowledge the webhook to Stripe
+  // always acknowledge
   res.json({ received: true });
 };
+
+

@@ -439,7 +439,7 @@ export const assignDriverToOrder = async (req, res) => {
       // email
       safePost(`${NOTIF_URL}/email`, {
         to:      customer.email,
-        subject: `Driver en route for Order ${orderId}`,
+        subject: `Driver is assigned for Order ${orderId}`,
         text:    custText,
         type:    'driver_assigned',
         payload: { orderId, driverId: selected._id }
